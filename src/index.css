@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+}
+
+/* Reglas de impresión para Documento de Factura (Imprimir / Guardar PDF) */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 8mm;
+  }
+
+  /* Ocultar todos los elementos generales de la app (menú, headers, modales, toasts) */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Mostrar exclusivamente el contenedor de la factura y todos sus hijos */
+  #printable-invoice,
+  #printable-invoice * {
+    visibility: visible;
+  }
+
+  /* Posicionar el documento en el origen de la hoja impresa */
+  #printable-invoice {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 6mm !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Ocultar botones de navegación y acciones con clase no-print y print:hidden */
+  .no-print,
+  .print\:hidden {
+    display: none !important;
+  }
+}

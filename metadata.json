@@ -1,0 +1,6 @@
+{
+  "name": "Nixi - Facturación Venezuela & Tasa BCV",
+  "description": "Software SaaS de facturación electrónica adaptado a Venezuela (SENIAT), manejo de doble moneda (USD/VES) y actualización de tasa oficial BCV.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
