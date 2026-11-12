@@ -1,9 +1,15 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, ArrowLeft, Loader2, Eye, EyeOff, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ArrowLeft, Loader2, Eye, EyeOff, ShieldCheck, CheckCircle2, Building2 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 
 interface RegisterViewProps {
-  onRegister: (data: { name: string; email: string; password?: string }) => void;
+  onRegister: (data: {
+    name: string;
+    email: string;
+    password?: string;
+    companyName?: string;
+    companyRif?: string;
+  }) => Promise<void> | void;
   onGoToLogin: () => void;
   onBackToLanding: () => void;
 }
@@ -17,31 +23,41 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
 
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [companyRif, setCompanyRif] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !email.trim() || !password.trim()) return;
 
     setIsLoading(true);
 
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Nuevo Usuario';
+    const finalCompanyName = companyName.trim() || `Inversiones ${fullName}`;
+    const finalCompanyRif = companyRif.trim().toUpperCase() || `J-${Math.floor(10000000 + Math.random() * 90000000)}-1`;
+
     updateProfile({
       fullName,
       email: email.trim(),
+      companyName: finalCompanyName,
+      companyRif: finalCompanyRif,
     });
 
-    setTimeout(() => {
-      setIsLoading(false);
-      onRegister({
+    try {
+      await onRegister({
         name: fullName,
         email: email.trim(),
         password: password.trim(),
+        companyName: finalCompanyName,
+        companyRif: finalCompanyRif,
       });
-    }, 600);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -107,6 +123,43 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
                   value={lastName}
                   onChange={(e) => setLastName(e.target.value)}
                   className="w-full pl-9 pr-3 py-3 text-sm bg-[#111827] border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Nombre de la Empresa y RIF */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Nombre de la Empresa / Razón Social
+              </label>
+              <div className="relative">
+                <Building2 className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Inversiones Altagracia C.A."
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  className="w-full pl-9 pr-3 py-3 text-sm bg-[#111827] border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                RIF de la Empresa
+              </label>
+              <div className="relative">
+                <span className="text-slate-500 font-mono text-xs font-bold absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none">
+                  RIF
+                </span>
+                <input
+                  type="text"
+                  placeholder="J-40123456-7"
+                  value={companyRif}
+                  onChange={(e) => setCompanyRif(e.target.value)}
+                  className="w-full pl-11 pr-3 py-3 text-sm bg-[#111827] border border-slate-700 rounded-lg text-white placeholder-slate-500 font-mono focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-all"
                 />
               </div>
             </div>

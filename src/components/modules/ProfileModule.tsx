@@ -30,11 +30,13 @@ import {
   Calendar,
   AlertCircle,
   Zap,
+  Loader2,
 } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
 import { useData } from '../../context/DataContext';
 import { useBcv } from '../../context/BcvContext';
 import { TeamMember, UserRole } from '../../types';
+import { supabase } from '../../supabaseClient.js';
 
 interface ProfileModuleProps {
   onBackToDashboard: () => void;
@@ -67,7 +69,18 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
     cambiarRolMiembro,
     trialDaysLeft,
     setTrialDaysLeft,
+    isSubscriptionActive,
   } = useData();
+
+  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'egabriel79@gmail.com';
+
+  const handleGoToCheckout = () => {
+    if (onNavigateToCheckout) {
+      onNavigateToCheckout();
+    } else {
+      window.dispatchEvent(new CustomEvent('nixi:navigate', { detail: 'checkout' }));
+    }
+  };
 
   const effectiveRole = currentUser?.role || userRole;
   const isCurrentLoggedDueño = effectiveRole === 'Dueño';
@@ -198,6 +211,116 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
     const future = new Date();
     future.setDate(future.getDate() + 30);
     return future.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  })();
+
+  // Consulta de estado real de la empresa en Supabase
+  const [companyDb, setCompanyDb] = useState<{
+    id?: string;
+    nombre?: string;
+    rif?: string;
+    email?: string;
+    estado?: string;
+    fecha_vencimiento?: string;
+    created_at?: string;
+  } | null>(null);
+  const [isLoadingCompanyDb, setIsLoadingCompanyDb] = useState(false);
+
+  const fetchCompanyFromSupabase = async () => {
+    const userEmail = (currentUser?.email || profile?.email || '').trim().toLowerCase();
+    if (!userEmail) return;
+
+    setIsLoadingCompanyDb(true);
+    try {
+      let { data, error } = await supabase
+        .from('empresas')
+        .select('*')
+        .ilike('email', userEmail)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      if ((!data || data.length === 0) && (companyRif || profile.companyRif)) {
+        const rifToSearch = (companyRif || profile.companyRif || '').trim();
+        if (rifToSearch) {
+          const resRif = await supabase
+            .from('empresas')
+            .select('*')
+            .eq('rif', rifToSearch)
+            .order('created_at', { ascending: false })
+            .limit(1);
+          if (resRif.data && resRif.data.length > 0) {
+            data = resRif.data;
+          }
+        }
+      }
+
+      if (error) {
+        console.warn('Aviso Supabase al consultar empresa:', error.message);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        const emp = data[0];
+        setCompanyDb(emp);
+
+        // Auto-completar campos de empresa si estaban vacíos
+        if (emp.nombre && !companyName) {
+          setCompanyName(emp.nombre);
+        }
+        if (emp.rif && !companyRif) {
+          setCompanyRif(emp.rif);
+        }
+
+        // Si en BD está Activo, sincronizar con el storage local para consistencia en la app
+        if (emp.estado === 'Activo') {
+          try {
+            localStorage.setItem('nixi_subscription_status', 'Activo');
+            localStorage.setItem('nixi_plan_active', 'true');
+            if (emp.fecha_vencimiento) {
+              localStorage.setItem('nixi_subscription_renewal', emp.fecha_vencimiento);
+            }
+          } catch {}
+        }
+      }
+    } catch (e) {
+      console.warn('Excepción consultando empresa en Supabase:', e);
+    } finally {
+      setIsLoadingCompanyDb(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCompanyFromSupabase();
+  }, [currentUser?.email, profile?.email]);
+
+  // Cálculo de estado dinámico de suscripción
+  const dbEstado = companyDb?.estado;
+  const dbVencimiento = companyDb?.fecha_vencimiento;
+
+  const daysRemainingFromDb = (() => {
+    if (!dbVencimiento) return null;
+    const diff = new Date(dbVencimiento).getTime() - new Date().getTime();
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  })();
+
+  const effectiveIsActive = dbEstado
+    ? dbEstado.toLowerCase() === 'activo'
+    : isSubscriptionActive;
+
+  const effectiveIsTrial = dbEstado
+    ? (dbEstado.toLowerCase() === 'trial' || dbEstado.toLowerCase() === 'en prueba') &&
+      (daysRemainingFromDb === null || daysRemainingFromDb > 0)
+    : (!effectiveIsActive && trialDaysLeft > 0);
+
+  const effectiveTrialDays = daysRemainingFromDb !== null ? daysRemainingFromDb : trialDaysLeft;
+
+  const effectiveRenewalDate = (() => {
+    if (dbVencimiento) {
+      const d = new Date(dbVencimiento);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      }
+    }
+    return nextPaymentDate;
   })();
 
   // Invite modal state
@@ -663,10 +786,20 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                       <span className="text-xs font-bold uppercase tracking-wider text-blue-400">
                         Mi Suscripción
                       </span>
-                      {trialDaysLeft > 0 ? (
+                      {isLoadingCompanyDb ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-400 bg-slate-800/60 border border-slate-700/60 px-2 py-0.5 rounded-full">
+                          <Loader2 className="w-3 h-3 animate-spin text-blue-400" />
+                          Sincronizando...
+                        </span>
+                      ) : effectiveIsActive ? (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                          Plan Activo ($5/mes)
+                        </span>
+                      ) : effectiveIsTrial ? (
                         <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-400 bg-blue-500/15 border border-blue-500/30 px-2.5 py-0.5 rounded-full">
                           <Clock className="w-3 h-3 text-blue-400" />
-                          Prueba Gratis ({trialDaysLeft} {trialDaysLeft === 1 ? 'día restante' : 'días restantes'})
+                          Prueba Gratis ({effectiveTrialDays} {effectiveTrialDays === 1 ? 'día restante' : 'días restantes'})
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 rounded-full">
@@ -675,23 +808,13 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                         </span>
                       )}
 
-                      {/* Botón interactivo para simular alternar días de prueba */}
                       <button
                         type="button"
-                        onClick={() => {
-                          const nextDays = trialDaysLeft > 0 ? 0 : 7;
-                          setTrialDaysLeft(nextDays);
-                          onShowToast(
-                            nextDays > 0
-                              ? 'Modo simulación: Periodo de prueba activado (7 días)'
-                              : 'Modo simulación: Periodo de prueba vencido (0 días)',
-                            'info'
-                          );
-                        }}
-                        className="text-[10px] text-slate-400 hover:text-slate-200 underline underline-offset-2 ml-1 cursor-pointer transition-colors"
-                        title="Alternar estado de periodo de prueba"
+                        onClick={fetchCompanyFromSupabase}
+                        title="Actualizar estado desde Supabase"
+                        className="text-slate-500 hover:text-slate-300 transition-colors p-1 rounded cursor-pointer"
                       >
-                        ({trialDaysLeft > 0 ? 'Simular Inactivo' : 'Simular 7 Días'})
+                        <RefreshCw className={`w-3 h-3 ${isLoadingCompanyDb ? 'animate-spin text-blue-400' : ''}`} />
                       </button>
                     </div>
 
@@ -700,47 +823,54 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                     </p>
 
                     {/* Estado del periodo o próximo pago */}
-                    {trialDaysLeft > 0 ? (
+                    {effectiveIsActive ? (
+                      <div className="flex items-center gap-2 pt-1 text-xs text-slate-300">
+                        <Calendar className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span>Próximo pago:</span>
+                        <span className="font-mono font-bold text-emerald-300 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-800/60">
+                          {effectiveRenewalDate}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsReceiptModalOpen(true)}
+                          className="text-[11px] text-blue-400 hover:text-blue-300 underline underline-offset-2 ml-1 cursor-pointer"
+                        >
+                          Ver comprobante
+                        </button>
+                      </div>
+                    ) : effectiveIsTrial ? (
                       <div className="flex items-center gap-2 pt-1 text-xs text-slate-300">
                         <Clock className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                         <span>Periodo de prueba activo:</span>
                         <span className="font-mono font-bold text-blue-300 bg-blue-950/80 px-2 py-0.5 rounded border border-blue-800/60">
-                          {trialDaysLeft} {trialDaysLeft === 1 ? 'día restante' : 'días restantes'}
+                          {effectiveTrialDays} {effectiveTrialDays === 1 ? 'día restante' : 'días restantes'}
                         </span>
                         <span className="text-slate-400 text-[11px] hidden sm:inline">
-                          (Acceso total a todas las herramientas)
+                          (Vence: {effectiveRenewalDate})
                         </span>
                       </div>
-                    ) : null}
+                    ) : (
+                      <p className="text-xs text-amber-300/90 pt-1">
+                        Tu periodo de prueba ha finalizado. Activa tu plan para continuar utilizando el sistema.
+                      </p>
+                    )}
                   </div>
 
-                  {/* Botón condicional */}
-                  {trialDaysLeft === 0 ? (
+                  {/* Botón de acción */}
+                  {effectiveIsActive ? (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (onNavigateToCheckout) {
-                          onNavigateToCheckout();
-                        } else {
-                          onBackToDashboard();
-                        }
-                      }}
-                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-500/40 cursor-pointer shrink-0 min-h-[44px]"
+                      onClick={() => setIsReceiptModalOpen(true)}
+                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-slate-200 bg-slate-800/90 hover:bg-slate-700 active:bg-slate-900 border border-slate-700 rounded-xl transition-all shadow-sm cursor-pointer shrink-0 min-h-[44px]"
                     >
-                      <Zap className="w-4 h-4 fill-white text-white" />
-                      <span>Activar Plan por $5</span>
+                      <Receipt className="w-4 h-4 text-emerald-400" />
+                      <span>Ver Comprobante</span>
                     </button>
                   ) : (
                     <button
                       type="button"
-                      onClick={() => {
-                        if (onNavigateToCheckout) {
-                          onNavigateToCheckout();
-                        } else {
-                          onBackToDashboard();
-                        }
-                      }}
-                      className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-500/40 cursor-pointer shrink-0 min-h-[44px]"
+                      onClick={handleGoToCheckout}
+                      className="inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs sm:text-sm font-bold text-white bg-blue-600 hover:bg-blue-500 active:bg-blue-700 rounded-xl transition-all shadow-md shadow-blue-600/30 hover:shadow-blue-500/40 cursor-pointer shrink-0 min-h-[44px]"
                     >
                       <Zap className="w-4 h-4 fill-white text-white" />
                       <span>Activar Plan por $5</span>
@@ -749,8 +879,8 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                 </div>
               </div>
 
-              {/* Acceso Rápido Superpanel de Administrador (Para pruebas) */}
-              {onNavigateToSuperadmin && (
+              {/* Acceso Rápido Superpanel de Administrador (Protegido: sólo visible para el Superadmin de Nixi) */}
+              {onNavigateToSuperadmin && isSuperAdmin && (
                 <div className="bg-gradient-to-r from-purple-950/70 via-[#1e1b4b]/60 to-slate-900 rounded-2xl p-4 sm:p-5 border border-purple-500/40 text-white shadow-xl mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5 text-center sm:text-left">
                     <div className="w-10 h-10 rounded-xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">

@@ -21,9 +21,17 @@ import {
   verifyCredentials,
   toggleUserRole,
 } from './utils/auth';
+import { supabase } from './supabaseClient.js';
 
 function AppContent() {
-  const { currentUser, setCurrentUser, logoutUser, vaciarEstadoGlobal, setTrialDaysLeft } = useData();
+  const {
+    currentUser,
+    setCurrentUser,
+    logoutUser,
+    vaciarEstadoGlobal,
+    setTrialDaysLeft,
+    activateSubscription,
+  } = useData();
 
   // 1 & 3. Estado Inicial y Persistencia de Sesión:
   // - NUNCA inicia en 'dashboard' si no hay un usuario autenticado guardado en localStorage.
@@ -43,6 +51,18 @@ function AppContent() {
       return 'landing';
     }
   });
+
+  // Event listener global para cambios de vista directos (ej. botón de activar plan desde Perfil)
+  useEffect(() => {
+    const handleNavEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<ViewMode>;
+      if (customEvent.detail) {
+        setCurrentView(customEvent.detail);
+      }
+    };
+    window.addEventListener('nixi:navigate', handleNavEvent);
+    return () => window.removeEventListener('nixi:navigate', handleNavEvent);
+  }, []);
 
   const [globalToasts, setGlobalToasts] = useState<ToastMessage[]>([]);
 
@@ -70,14 +90,46 @@ function AppContent() {
     }
   }, [currentView, currentUser]);
 
-  // Registro: crea el usuario, guarda la sesión y navega a Checkout para activar con Pago Móvil
-  const handleRegister = (data: { name: string; email: string; password?: string }) => {
+  // Registro: crea el usuario, registra la empresa en Supabase y navega a Checkout para activar con Pago Móvil
+  const handleRegister = async (data: {
+    name: string;
+    email: string;
+    password?: string;
+    companyName?: string;
+    companyRif?: string;
+  }) => {
     // Vaciar datos globales previos para que la cuenta inicie en blanco (0 clientes, 0 facturas, 0 movimientos)
     vaciarEstadoGlobal();
     setTrialDaysLeft(7);
     try {
       localStorage.setItem('nixi_trial_days_left', '7');
     } catch {}
+
+    const companyName = data.companyName?.trim() || `Inversiones ${data.name.trim()}`;
+    const companyRif = data.companyRif?.trim().toUpperCase() || `J-${Math.floor(10000000 + Math.random() * 90000000)}-1`;
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + 7); // 7 días de Trial
+
+    // 2. Inserción en la tabla 'empresas' de Supabase
+    try {
+      const { data: inserted, error: insertError } = await supabase.from('empresas').insert([
+        {
+          nombre: companyName,
+          rif: companyRif,
+          email: data.email.trim(),
+          estado: 'Trial',
+          fecha_vencimiento: expDate.toISOString(),
+        },
+      ]);
+
+      if (insertError) {
+        console.warn('Aviso de Supabase al registrar empresa:', insertError.message);
+      } else {
+        console.info('Empresa creada exitosamente en Supabase:', inserted);
+      }
+    } catch (err: any) {
+      console.error('Error insertando empresa en Supabase:', err);
+    }
 
     const authUser: AuthUser = {
       name: data.name.trim(),
@@ -93,12 +145,13 @@ function AppContent() {
 
     setCurrentUser(authUser);
     setCurrentView('checkout');
-    addGlobalToast(`¡Bienvenido a Nixi, ${authUser.name}! Por favor confirma tu activación mediante Pago Móvil.`, 'info');
+    addGlobalToast(`¡Bienvenido a Nixi! Empresa "${companyName}" registrada en periodo de prueba.`, 'success');
   };
 
   const handleCheckoutSuccess = () => {
+    activateSubscription();
     setCurrentView('dashboard');
-    addGlobalToast('✅ Pago recibido. ¡Bienvenido a Nixi!', 'success');
+    addGlobalToast('✅ Pago recibido. ¡Suscripción Plan Emprendedor activada con éxito!', 'success');
   };
 
   // Inicio de Sesión: valida credenciales, activa sesión y navega al Dashboard

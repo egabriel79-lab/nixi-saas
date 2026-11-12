@@ -49,6 +49,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     agregarFactura,
     registrarPagoFactura,
     trialDaysLeft,
+    isSubscriptionActive,
   } = useData();
 
   const activeUser = contextUser || currentUser || { name: 'Gabriel Echeverría', role: 'Administrador' };
@@ -177,18 +178,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
           onToggleRole={onToggleRole}
         />
 
-        {/* Banner de Periodo de Prueba (Facturación) */}
-        {currentSection === 'facturacion' && trialDaysLeft > 0 && (
-          <div className="bg-gradient-to-r from-blue-900/95 via-slate-900 to-blue-950 border-b border-blue-500/30 px-4 sm:px-6 py-2.5 text-white shadow-md">
+        {/* Banner de Periodo de Prueba o Plan Inactivo (Facturación) */}
+        {currentSection === 'facturacion' && !isSubscriptionActive && (
+          <div
+            className={`border-b px-4 sm:px-6 py-2.5 text-white shadow-md ${
+              trialDaysLeft > 0
+                ? 'bg-gradient-to-r from-blue-900/95 via-slate-900 to-blue-950 border-blue-500/30'
+                : 'bg-gradient-to-r from-amber-950/95 via-slate-900 to-amber-950 border-amber-500/30'
+            }`}
+          >
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-4 text-center sm:text-left">
               <div className="flex items-center gap-2.5">
-                <span className="flex h-2.5 w-2.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                <span
+                  className={`flex h-2.5 w-2.5 rounded-full shrink-0 ${
+                    trialDaysLeft > 0 ? 'bg-blue-400 animate-pulse' : 'bg-amber-400 animate-pulse'
+                  }`}
+                />
                 <p className="text-xs sm:text-sm font-medium text-slate-200">
-                  Estás en tu periodo de prueba. Te quedan{' '}
-                  <span className="font-bold text-white underline decoration-blue-400 underline-offset-2">
-                    {trialDaysLeft} {trialDaysLeft === 1 ? 'día' : 'días'}
-                  </span>{' '}
-                  para activar tu plan.
+                  {trialDaysLeft > 0 ? (
+                    <>
+                      Estás en tu periodo de prueba. Te quedan{' '}
+                      <span className="font-bold text-white underline decoration-blue-400 underline-offset-2">
+                        {trialDaysLeft} {trialDaysLeft === 1 ? 'día' : 'días'}
+                      </span>{' '}
+                      para activar tu plan.
+                    </>
+                  ) : (
+                    <>
+                      Tu periodo de prueba ha expirado. Activa tu plan para desbloquear todas las funciones.
+                    </>
+                  )}
                 </p>
               </div>
               <button

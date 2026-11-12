@@ -23,6 +23,9 @@ export interface DataContextType {
   logoutUser: () => void;
   trialDaysLeft: number;
   setTrialDaysLeft: React.Dispatch<React.SetStateAction<number>>;
+  isSubscriptionActive: boolean;
+  setIsSubscriptionActive: React.Dispatch<React.SetStateAction<boolean>>;
+  activateSubscription: () => void;
 
   // Team Management (Mi Equipo)
   teamMembers: TeamMember[];
@@ -349,6 +352,32 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.warn('Error guardando nixi_trial_days_left en localStorage', e);
     }
   }, [trialDaysLeft]);
+
+  // Estado global de Suscripción paga de Nixi
+  const [isSubscriptionActive, setIsSubscriptionActive] = useState<boolean>(() => {
+    try {
+      const status = localStorage.getItem('nixi_subscription_status');
+      if (status === 'Activo') return true;
+      const planActive = localStorage.getItem('nixi_plan_active');
+      return planActive === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const activateSubscription = () => {
+    setIsSubscriptionActive(true);
+    try {
+      localStorage.setItem('nixi_subscription_plan', 'Plan Emprendedor');
+      localStorage.setItem('nixi_subscription_status', 'Activo');
+      localStorage.setItem('nixi_plan_active', 'true');
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + 30);
+      localStorage.setItem('nixi_subscription_renewal', expDate.toISOString());
+    } catch (e) {
+      console.warn('Error guardando suscripción en localStorage', e);
+    }
+  };
 
   const setRole = (role: UserRole) => {
     setCurrentUser((prev) => (prev ? { ...prev, role } : { name: 'Gabriel Echeverría', role }));
@@ -980,6 +1009,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         logoutUser,
         trialDaysLeft,
         setTrialDaysLeft,
+        isSubscriptionActive,
+        setIsSubscriptionActive,
+        activateSubscription,
         teamMembers,
         invitarMiembro,
         eliminarMiembro,

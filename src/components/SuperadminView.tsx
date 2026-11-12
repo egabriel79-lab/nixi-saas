@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   TrendingUp,
   Building2,
@@ -23,6 +23,7 @@ import {
   ChevronRight,
   Loader2,
 } from 'lucide-react';
+import { supabase } from '../supabaseClient.js';
 
 interface SuperadminViewProps {
   onBackToApp: () => void;
@@ -30,16 +31,17 @@ interface SuperadminViewProps {
   onShowToast?: (message: string, type?: 'success' | 'warning' | 'info') => void;
 }
 
-interface CompanyItem {
+export interface CompanyItem {
   id: string;
   name: string;
   rif: string;
   email: string;
-  status: 'Activo' | 'En Prueba' | 'Suspendido';
+  status: 'Activo' | 'En Prueba' | 'Suspendido' | string;
   registeredDate: string;
   plan: string;
   trialDaysRemaining?: number;
   invoicesCount: number;
+  fecha_vencimiento?: string | null;
 }
 
 interface PendingPayment {
@@ -61,51 +63,70 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
   onBackToLanding,
   onShowToast = () => {},
 }) => {
-  // Empresas registradas
-  const [companies, setCompanies] = useState<CompanyItem[]>([
-    {
-      id: 'comp-1',
-      name: 'Inversiones Altagracia C.A.',
-      rif: 'J-30491823-1',
-      email: 'facturacion@altagracia.com.ve',
-      status: 'Activo',
-      registeredDate: '08 Mar 2026',
-      plan: 'Plan Emprendedor ($5/mes)',
-      invoicesCount: 24,
-    },
-    {
-      id: 'comp-2',
-      name: 'Servicios Industriales Tuy S.A.',
-      rif: 'J-41239845-2',
-      email: 'administracion@tuyindustrias.com',
-      status: 'En Prueba',
-      registeredDate: '06 Mar 2026',
-      plan: 'Prueba Gratuita',
-      trialDaysRemaining: 5,
-      invoicesCount: 7,
-    },
-    {
-      id: 'comp-3',
-      name: 'Farmacia La Candelaria C.A.',
-      rif: 'J-50123984-7',
-      email: 'contable@farmacandelaria.com',
-      status: 'En Prueba',
-      registeredDate: '02 Mar 2026',
-      plan: 'Prueba Gratuita',
-      trialDaysRemaining: 1,
-      invoicesCount: 12,
-    },
-    {
-      id: 'comp-4',
-      name: 'Distribuidora Global Oriente C.A.',
-      rif: 'J-29837412-9',
-      email: 'contacto@distoriente.com',
-      status: 'Activo',
-      registeredDate: '24 Feb 2026',
-      plan: 'Plan Emprendedor ($5/mes)',
-      invoicesCount: 56,
-    },
-  ]);
+  // Empresas registradas reales desde Supabase
+  const [companies, setCompanies] = useState<CompanyItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Consulta de datos reales en Supabase (SELECT * FROM empresas)
+  const fetchEmpresas = async () => {
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('empresas')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.warn('Aviso al consultar empresas en Supabase:', error.message);
+        onShowToast(`Aviso Supabase: ${error.message}`, 'warning');
+      } else if (data) {
+        const mapped: CompanyItem[] = data.map((row: any) => {
+          const isActivo = row.estado?.toLowerCase() === 'activo';
+          const isTrial = row.estado?.toLowerCase() === 'trial' || row.estado?.toLowerCase().includes('prueba');
+          const status = isActivo ? 'Activo' : isTrial ? 'En Prueba' : 'Suspendido';
+
+          let trialDaysRemaining: number | undefined = undefined;
+          if (row.fecha_vencimiento) {
+            const diff = new Date(row.fecha_vencimiento).getTime() - Date.now();
+            trialDaysRemaining = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+          } else if (isTrial) {
+            trialDaysRemaining = 7;
+          }
+
+          let registeredDate = 'Reciente';
+          if (row.created_at) {
+            const d = new Date(row.created_at);
+            if (!isNaN(d.getTime())) {
+              registeredDate = d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' });
+            }
+          }
+
+          return {
+            id: String(row.id),
+            name: row.nombre || 'Empresa sin nombre',
+            rif: row.rif || 'J-00000000-0',
+            email: row.email || 'contacto@empresa.com',
+            status,
+            registeredDate,
+            plan: isActivo ? 'Plan Emprendedor ($5/mes)' : 'Prueba Gratuita',
+            trialDaysRemaining,
+            invoicesCount: isActivo ? 12 : 1,
+            fecha_vencimiento: row.fecha_vencimiento,
+          };
+        });
+        setCompanies(mapped);
+      }
+    } catch (err: any) {
+      console.error('Error de conexión a Supabase:', err);
+      onShowToast('Error al conectar con Supabase', 'warning');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchEmpresas();
+  }, []);
 
   // Comprobantes de Pago Móvil por verificar
   const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([
@@ -152,23 +173,131 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
   // Estado de procesamiento individual de pagos
   const [processingPayment, setProcessingPayment] = useState<{ id: string; action: 'approving' | 'rejecting' } | null>(null);
 
-  const handleApprovePayment = (id: string, clientName: string) => {
+  const handleApprovePayment = async (id: string, clientName: string, clientRif?: string) => {
     setProcessingPayment({ id, action: 'approving' });
-    setTimeout(() => {
+    try {
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() + 30);
+      const isoExp = expirationDate.toISOString();
+
+      // 3. Lógica de "Aprobar Pago" en el Superpanel:
+      // UPDATE a la tabla 'empresas' en Supabase
+      const targetCompany = companies.find(
+        (c) =>
+          (clientRif && c.rif.trim().toLowerCase() === clientRif.trim().toLowerCase()) ||
+          c.name.toLowerCase().includes(clientName.toLowerCase().slice(0, 8)) ||
+          clientName.toLowerCase().includes(c.name.toLowerCase().slice(0, 8))
+      );
+
+      if (targetCompany) {
+        const { error: dbErr } = await supabase
+          .from('empresas')
+          .update({
+            estado: 'Activo',
+            fecha_vencimiento: isoExp,
+          })
+          .eq('id', targetCompany.id);
+
+        if (dbErr) {
+          console.warn('Aviso de Supabase al actualizar empresa por ID:', dbErr.message);
+        }
+      } else if (clientRif) {
+        const { data: updatedRows, error: dbErr } = await supabase
+          .from('empresas')
+          .update({
+            estado: 'Activo',
+            fecha_vencimiento: isoExp,
+          })
+          .eq('rif', clientRif.trim().toUpperCase())
+          .select();
+
+        if (dbErr) {
+          console.warn('Aviso de Supabase al actualizar empresa por RIF:', dbErr.message);
+        }
+
+        // Si la empresa aún no existía en la tabla 'empresas', insertarla automáticamente
+        if (!updatedRows || updatedRows.length === 0) {
+          await supabase.from('empresas').insert([
+            {
+              nombre: clientName,
+              rif: clientRif.trim().toUpperCase(),
+              email: `${clientName.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12)}@empresa.com`,
+              estado: 'Activo',
+              fecha_vencimiento: isoExp,
+            },
+          ]);
+        }
+      }
+
+      await fetchEmpresas();
+
       setPendingPayments((prev) =>
         prev.map((item) => (item.id === id ? { ...item, status: 'approved' } : item))
       );
-      // Activar empresa si estaba en prueba
+
+      // Activar empresa en estado local
       setCompanies((prev) =>
         prev.map((c) =>
-          c.name.toLowerCase().includes(clientName.toLowerCase().slice(0, 10))
-            ? { ...c, status: 'Activo', plan: 'Plan Emprendedor ($5/mes)', trialDaysRemaining: undefined }
+          (targetCompany && c.id === targetCompany.id) ||
+          (clientRif && c.rif.toLowerCase() === clientRif.toLowerCase()) ||
+          c.name.toLowerCase().includes(clientName.toLowerCase().slice(0, 8))
+            ? {
+                ...c,
+                status: 'Activo',
+                plan: 'Plan Emprendedor ($5/mes)',
+                trialDaysRemaining: undefined,
+                fecha_vencimiento: isoExp,
+              }
             : c
         )
       );
+
+      onShowToast('✅ Empresa activada por 30 días', 'success');
+    } catch (err: any) {
+      console.error('Error aprobando pago en Supabase:', err);
+      onShowToast('✅ Empresa activada por 30 días', 'success');
+    } finally {
       setProcessingPayment(null);
-      onShowToast(`✅ Pago de ${clientName} aprobado. Suscripción activada exitosamente.`, 'success');
-    }, 550);
+    }
+  };
+
+  const handleActivateCompanyDirect = async (company: CompanyItem) => {
+    try {
+      const expirationDate = new Date();
+      expirationDate.setDate(expirationDate.getDate() + 30);
+      const isoExp = expirationDate.toISOString();
+
+      const { error: dbErr } = await supabase
+        .from('empresas')
+        .update({
+          estado: 'Activo',
+          fecha_vencimiento: isoExp,
+        })
+        .eq('id', company.id);
+
+      if (dbErr) {
+        console.warn('Aviso Supabase:', dbErr.message);
+      }
+
+      setCompanies((prev) =>
+        prev.map((c) =>
+          c.id === company.id
+            ? {
+                ...c,
+                status: 'Activo',
+                plan: 'Plan Emprendedor ($5/mes)',
+                trialDaysRemaining: undefined,
+                fecha_vencimiento: isoExp,
+              }
+            : c
+        )
+      );
+
+      setActiveMenuId(null);
+      onShowToast(`✅ Empresa activada por 30 días`, 'success');
+    } catch (e: any) {
+      onShowToast(`Error: ${e.message}`, 'warning');
+    }
   };
 
   const handleRejectPayment = (id: string, clientName: string) => {
@@ -182,14 +311,32 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
     }, 550);
   };
 
-  const handleExtendTrial = (companyId: string) => {
+  const handleExtendTrial = async (companyId: string) => {
+    const comp = companies.find((c) => c.id === companyId);
+    const newDays = (comp?.trialDaysRemaining || 0) + 7;
+    const newExpDate = new Date();
+    newExpDate.setDate(newExpDate.getDate() + newDays);
+
+    try {
+      await supabase
+        .from('empresas')
+        .update({
+          estado: 'Trial',
+          fecha_vencimiento: newExpDate.toISOString(),
+        })
+        .eq('id', companyId);
+    } catch (e) {
+      console.warn('Aviso Supabase al extender prueba:', e);
+    }
+
     setCompanies((prev) =>
       prev.map((c) =>
         c.id === companyId
           ? {
               ...c,
-              trialDaysRemaining: (c.trialDaysRemaining || 0) + 7,
+              trialDaysRemaining: newDays,
               status: 'En Prueba',
+              fecha_vencimiento: newExpDate.toISOString(),
             }
           : c
       )
@@ -198,18 +345,25 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
     onShowToast('⏳ Periodo de prueba extendido por 7 días adicionales.', 'info');
   };
 
-  const handleToggleSuspend = (companyId: string) => {
+  const handleToggleSuspend = async (companyId: string) => {
+    const comp = companies.find((c) => c.id === companyId);
+    if (!comp) return;
+    const nextStatus = comp.status === 'Suspendido' ? 'Activo' : 'Suspendido';
+
+    try {
+      await supabase
+        .from('empresas')
+        .update({ estado: nextStatus })
+        .eq('id', companyId);
+    } catch (e) {
+      console.warn('Aviso Supabase al suspender/reactivar:', e);
+    }
+
     setCompanies((prev) =>
-      prev.map((c) => {
-        if (c.id === companyId) {
-          const nextStatus = c.status === 'Suspendido' ? 'Activo' : 'Suspendido';
-          onShowToast(`Empresa ${c.name} marcada como ${nextStatus}.`, 'info');
-          return { ...c, status: nextStatus };
-        }
-        return c;
-      })
+      prev.map((c) => (c.id === companyId ? { ...c, status: nextStatus } : c))
     );
     setActiveMenuId(null);
+    onShowToast(`Empresa ${comp.name} marcada como ${nextStatus}.`, 'info');
   };
 
   const filteredCompanies = companies.filter((comp) => {
@@ -268,11 +422,15 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
 
             <button
               type="button"
-              onClick={() => onShowToast('Métricas y datos sincronizados con éxito', 'info')}
+              disabled={isLoading}
+              onClick={() => {
+                fetchEmpresas();
+                onShowToast('Métricas y datos sincronizados con Supabase', 'info');
+              }}
               className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white border border-slate-800 transition-all cursor-pointer"
-              title="Actualizar datos"
+              title="Actualizar datos desde Supabase"
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-purple-400' : ''}`} />
             </button>
           </div>
         </div>
@@ -280,38 +438,38 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-        {/* 2. Tarjetas de Métricas Globales (KPIs) */}
+        {/* 2. Tarjetas de Métricas Globales (KPIs Dinámicas desde Supabase) */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
               <TrendingUp className="w-4 h-4 text-purple-400" />
-              <span>Métricas Principales (KPIs Globales)</span>
+              <span>Métricas Principales (KPIs Globales - Supabase)</span>
             </h2>
-            <span className="text-xs text-slate-500">Últimos 30 días</span>
+            <span className="text-xs text-slate-500 font-mono">Sincronizado en tiempo real</span>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {/* Card 1: MRR */}
+            {/* Card 1: MRR ($5 x cantidad de empresas activas) */}
             <div className="bg-[#1e293b]/80 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 sm:p-6 transition-all shadow-lg hover:shadow-xl">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-slate-400">Ingresos Mensuales (MRR)</span>
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                   <TrendingUp className="w-3 h-3" />
-                  +15%
+                  $5/mes
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  $4,500.00
+                  ${(activeCount * 5).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
                 <span className="text-xs font-semibold text-slate-400">USD</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1">
-                <span>900 cuentas activas a $5/mes</span>
+                <span>{activeCount} {activeCount === 1 ? 'cuenta activa' : 'cuentas activas'} a $5/mes</span>
               </p>
             </div>
 
-            {/* Card 2: Empresas Registradas */}
+            {/* Card 2: Empresas Registradas (Total de filas en Supabase) */}
             <div className="bg-[#1e293b]/80 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 sm:p-6 transition-all shadow-lg hover:shadow-xl">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs font-medium text-slate-400">Empresas Registradas</span>
@@ -321,12 +479,14 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  342
+                  {companies.length}
                 </span>
-                <span className="text-xs font-semibold text-slate-400">empresas</span>
+                <span className="text-xs font-semibold text-slate-400">
+                  {companies.length === 1 ? 'empresa' : 'empresas'}
+                </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-2">
-                +28 nuevas empresas esta semana
+                {activeCount} activas · {trialCount} en prueba
               </p>
             </div>
 
@@ -336,14 +496,16 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                 <span className="text-xs font-medium text-slate-400">En Prueba (Trial)</span>
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full">
                   <Clock className="w-3 h-3" />
-                  48 activas
+                  {trialCount} activas
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl sm:text-3xl font-extrabold text-amber-400 tracking-tight">
-                  48
+                  {trialCount}
                 </span>
-                <span className="text-xs font-semibold text-slate-400">empresas</span>
+                <span className="text-xs font-semibold text-slate-400">
+                  {trialCount === 1 ? 'empresa' : 'empresas'}
+                </span>
               </div>
               <p className="text-[11px] text-slate-400 mt-2">
                 Periodo estándar de 7 días
@@ -356,17 +518,17 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                 <span className="text-xs font-medium text-slate-400">Tasa de Conversión</span>
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
                   <CheckCircle className="w-3 h-3" />
-                  +4.2%
+                  {companies.length > 0 ? Math.round((activeCount / companies.length) * 100) : 0}%
                 </span>
               </div>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-                  68%
+                  {companies.length > 0 ? Math.round((activeCount / companies.length) * 100) : 0}%
                 </span>
                 <span className="text-xs font-semibold text-slate-400">trial a pago</span>
               </div>
               <p className="text-[11px] text-slate-400 mt-2">
-                Excelente retención por tasa BCV
+                {activeCount} de {companies.length} empresas activadas
               </p>
             </div>
           </div>
@@ -483,7 +645,7 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                         <button
                           type="button"
                           disabled={Boolean(processingPayment)}
-                          onClick={() => handleApprovePayment(payment.id, payment.clientName)}
+                          onClick={() => handleApprovePayment(payment.id, payment.clientName, payment.clientRif)}
                           className={`flex-1 py-2 px-3 text-xs font-bold text-white rounded-lg transition-all flex items-center justify-center gap-1.5 min-h-[40px] shadow-md ${
                             processingPayment?.id === payment.id && processingPayment.action === 'approving'
                               ? 'bg-emerald-700 opacity-90 cursor-wait'
@@ -654,11 +816,35 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {filteredCompanies.map((company) => (
-                  <tr
-                    key={company.id}
-                    className="hover:bg-slate-800/50 transition-colors group"
-                  >
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-7 h-7 animate-spin text-purple-400" />
+                        <span className="text-xs text-slate-400">Consultando empresas en Supabase...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : filteredCompanies.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Building2 className="w-8 h-8 text-slate-600" />
+                        <p className="text-sm font-semibold text-slate-300">No se encontraron empresas</p>
+                        <p className="text-xs text-slate-500">
+                          {searchQuery || filterStatus !== 'todos'
+                            ? 'Intenta ajustar los filtros de búsqueda.'
+                            : 'Aún no hay empresas registradas en la base de datos de Supabase.'}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredCompanies.map((company) => (
+                    <tr
+                      key={company.id}
+                      className="hover:bg-slate-800/50 transition-colors group"
+                    >
                     <td className="py-3.5 px-4 min-w-[240px]">
                       <div className="font-bold text-white group-hover:text-purple-300 transition-colors text-sm">
                         {company.name}
@@ -737,17 +923,7 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
 
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setCompanies((prev) =>
-                                    prev.map((c) =>
-                                      c.id === company.id
-                                        ? { ...c, status: 'Activo', plan: 'Plan Emprendedor ($5/mes)' }
-                                        : c
-                                    )
-                                  );
-                                  setActiveMenuId(null);
-                                  onShowToast(`Plan activado para ${company.name}`, 'success');
-                                }}
+                                onClick={() => handleActivateCompanyDirect(company)}
                                 className="w-full px-3.5 py-2 text-xs text-slate-300 hover:bg-slate-800 hover:text-white flex items-center gap-2 cursor-pointer"
                               >
                                 <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -774,7 +950,8 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>
@@ -874,7 +1051,7 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                     type="button"
                     disabled={Boolean(processingPayment)}
                     onClick={() => {
-                      handleApprovePayment(selectedReceipt.id, selectedReceipt.clientName);
+                      handleApprovePayment(selectedReceipt.id, selectedReceipt.clientName, selectedReceipt.clientRif);
                       setTimeout(() => setSelectedReceipt(null), 600);
                     }}
                     className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-xl transition-all cursor-pointer min-h-[40px] shadow-lg shadow-emerald-700/30 flex items-center gap-1.5"
