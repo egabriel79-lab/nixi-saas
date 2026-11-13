@@ -72,7 +72,7 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
     isSubscriptionActive,
   } = useData();
 
-  const isSuperAdmin = currentUser?.email?.toLowerCase() === 'egabriel79@gmail.com';
+  const isSuperAdmin = currentUser?.email?.trim().toLowerCase() === 'egabriel79@gmail.com';
 
   const handleGoToCheckout = () => {
     if (onNavigateToCheckout) {
@@ -879,8 +879,10 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                 </div>
               </div>
 
-              {/* Acceso Rápido Superpanel de Administrador (Protegido: sólo visible para el Superadmin de Nixi) */}
-              {onNavigateToSuperadmin && isSuperAdmin && (
+              {/* Acceso Rápido Superpanel de Administrador (Protegido: sólo visible para egabriel79@gmail.com) */}
+              {currentUser?.email?.trim().toLowerCase() === 'egabriel79@gmail.com' &&
+                isSuperAdmin &&
+                onNavigateToSuperadmin && (
                 <div className="bg-gradient-to-r from-purple-950/70 via-[#1e1b4b]/60 to-slate-900 rounded-2xl p-4 sm:p-5 border border-purple-500/40 text-white shadow-xl mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5 text-center sm:text-left">
                     <div className="w-10 h-10 rounded-xl bg-purple-600/30 border border-purple-500/40 flex items-center justify-center text-purple-300 shrink-0">
@@ -894,7 +896,7 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                         </span>
                       </div>
                       <p className="text-xs text-slate-300 mt-0.5">
-                        Consola global ejecutiva para supervisar las 342 empresas registradas, KPIs y verificar capturas de Pago Móvil.
+                        Consola global ejecutiva para supervisar las empresas registradas, KPIs y verificar capturas de Pago Móvil.
                       </p>
                     </div>
                   </div>

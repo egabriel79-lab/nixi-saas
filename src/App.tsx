@@ -12,7 +12,7 @@ import { CheckoutView } from './components/CheckoutView';
 import { HelpView } from './components/HelpView';
 import { SuperadminView } from './components/SuperadminView';
 import { ToastContainer, ToastMessage } from './components/Toast';
-import { ViewMode, AuthUser } from './types';
+import { ViewMode, AuthUser, CurrentUser } from './types';
 import { BcvProvider } from './context/BcvContext';
 import { UserProvider } from './context/UserContext';
 import { DataProvider, useData } from './context/DataContext';
@@ -52,17 +52,35 @@ function AppContent() {
     }
   });
 
+  const SUPERADMIN_EMAIL = 'egabriel79@gmail.com';
+  const isSuperAdminUser = (user: CurrentUser | AuthUser | null | undefined) =>
+    Boolean(user?.email && user.email.trim().toLowerCase() === SUPERADMIN_EMAIL);
+
+  const navigateToView = (view: ViewMode) => {
+    if (view === 'superadmin' && !isSuperAdminUser(currentUser)) {
+      addGlobalToast('Acceso denegado', 'warning');
+      setCurrentView(currentUser && currentUser.name && currentUser.name.trim() ? 'dashboard' : 'login');
+      return;
+    }
+    setCurrentView(view);
+  };
+
   // Event listener global para cambios de vista directos (ej. botón de activar plan desde Perfil)
   useEffect(() => {
     const handleNavEvent = (e: Event) => {
       const customEvent = e as CustomEvent<ViewMode>;
       if (customEvent.detail) {
+        if (customEvent.detail === 'superadmin' && !isSuperAdminUser(currentUser)) {
+          addGlobalToast('Acceso denegado', 'warning');
+          setCurrentView(currentUser && currentUser.name && currentUser.name.trim() ? 'dashboard' : 'login');
+          return;
+        }
         setCurrentView(customEvent.detail);
       }
     };
     window.addEventListener('nixi:navigate', handleNavEvent);
     return () => window.removeEventListener('nixi:navigate', handleNavEvent);
-  }, []);
+  }, [currentUser]);
 
   const [globalToasts, setGlobalToasts] = useState<ToastMessage[]>([]);
 
@@ -78,10 +96,17 @@ function AppContent() {
     setGlobalToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // 2. Protección de Rutas (Auth Guard):
-  // Si currentView es 'dashboard' pero currentUser es null o está vacío,
-  // la app fuerza automáticamente el cambio a 'login'.
+  // 2. Protección de Rutas (Auth Guard & Superadmin Route Guard):
+  // - Si currentView intenta cambiar a 'superadmin' sin el correo autorizado, muestra Toast "Acceso denegado" y fuerza vuelta a 'dashboard' (o 'login' si no hay sesión).
+  // - Si currentView es 'dashboard' pero currentUser es null o está vacío, fuerza cambio a 'login'.
   useEffect(() => {
+    if (currentView === 'superadmin') {
+      if (!isSuperAdminUser(currentUser)) {
+        addGlobalToast('Acceso denegado', 'warning');
+        setCurrentView(currentUser && currentUser.name && currentUser.name.trim() ? 'dashboard' : 'login');
+      }
+      return;
+    }
     if (currentView === 'dashboard') {
       if (!currentUser || !currentUser.name || !currentUser.name.trim()) {
         setCurrentView('login');
@@ -105,27 +130,41 @@ function AppContent() {
       localStorage.setItem('nixi_trial_days_left', '7');
     } catch {}
 
-    const companyName = data.companyName?.trim() || `Inversiones ${data.name.trim()}`;
-    const companyRif = data.companyRif?.trim().toUpperCase() || `J-${Math.floor(10000000 + Math.random() * 90000000)}-1`;
+    const userEmail = data.email.trim().toLowerCase();
+    // El nombre de la empresa (o el nombre del usuario si no puso empresa)
+    const companyName = data.companyName?.trim() || data.name.trim();
+    // El RIF (o un texto por defecto si no lo pide)
+    const companyRif = data.companyRif?.trim().toUpperCase() || 'J-00000000-0';
     const expDate = new Date();
-    expDate.setDate(expDate.getDate() + 7); // 7 días de Trial
+    expDate.setDate(expDate.getDate() + 7); // Fecha actual + 7 días (Trial por defecto)
 
-    // 2. Inserción en la tabla 'empresas' de Supabase
+    // Inserción en la tabla 'empresas' de Supabase (evitando duplicar si ya se insertó)
     try {
-      const { data: inserted, error: insertError } = await supabase.from('empresas').insert([
-        {
-          nombre: companyName,
-          rif: companyRif,
-          email: data.email.trim(),
-          estado: 'Trial',
-          fecha_vencimiento: expDate.toISOString(),
-        },
-      ]);
+      const { data: existing } = await supabase
+        .from('empresas')
+        .select('id')
+        .ilike('email', userEmail)
+        .limit(1);
 
-      if (insertError) {
-        console.warn('Aviso de Supabase al registrar empresa:', insertError.message);
-      } else {
-        console.info('Empresa creada exitosamente en Supabase:', inserted);
+      if (!existing || existing.length === 0) {
+        const { data: inserted, error: insertError } = await supabase
+          .from('empresas')
+          .insert([
+            {
+              nombre: companyName,
+              rif: companyRif,
+              email: userEmail,
+              estado: 'Trial',
+              fecha_vencimiento: expDate.toISOString(),
+            },
+          ])
+          .select();
+
+        if (insertError) {
+          console.error('Aviso de Supabase al registrar empresa:', insertError.message);
+        } else {
+          console.info('✅ Empresa creada exitosamente en Supabase:', inserted);
+        }
       }
     } catch (err: any) {
       console.error('Error insertando empresa en Supabase:', err);
@@ -202,7 +241,7 @@ function AppContent() {
     >
       {currentView === 'landing' && (
         <LandingPage
-          onNavigate={(view) => setCurrentView(view)}
+          onNavigate={navigateToView}
           onEnterDashboard={() => {
             if (currentUser) {
               setCurrentView('dashboard');
@@ -245,7 +284,9 @@ function AppContent() {
           onToggleRole={handleToggleRole}
           onNavigateToCheckout={() => setCurrentView('checkout')}
           onNavigateToHelp={() => setCurrentView('help')}
-          onNavigateToSuperadmin={() => setCurrentView('superadmin')}
+          onNavigateToSuperadmin={
+            isSuperAdminUser(currentUser) ? () => navigateToView('superadmin') : undefined
+          }
         />
       )}
 
@@ -253,21 +294,9 @@ function AppContent() {
         <HelpView onBackToDashboard={() => setCurrentView('dashboard')} />
       )}
 
-      {currentView === 'superadmin' && (
+      {currentView === 'superadmin' && isSuperAdminUser(currentUser) && (
         <SuperadminView
-          onBackToApp={() => {
-            if (currentUser && currentUser.name) {
-              setCurrentView('dashboard');
-            } else {
-              // Si no había sesión activa, se inicia sesión como Dueño para entrar al Dashboard
-              setCurrentUser({
-                name: 'Gabriel Echeverría',
-                email: 'Egabriel79@gmail.com',
-                role: 'Dueño',
-              });
-              setCurrentView('dashboard');
-            }
-          }}
+          onBackToApp={() => setCurrentView('dashboard')}
           onBackToLanding={() => setCurrentView('landing')}
           onShowToast={addGlobalToast}
         />

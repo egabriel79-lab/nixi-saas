@@ -85,9 +85,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { profile } = useUser();
   const { currentUser } = useData();
+  const activeEmail = (currentUser?.email || '').trim().toLowerCase();
   const effectiveRole = currentUser?.role || userRole;
   const activeName = currentUser?.name || profile.fullName;
-  const isContador = effectiveRole.toLowerCase().includes('contad');
+  const isOwner = activeEmail === 'egabriel79@gmail.com' || effectiveRole === 'Dueño';
+  const isContador = !isOwner && effectiveRole.toLowerCase().includes('contad');
 
   const activeInitials = (() => {
     if (!activeName.trim()) return 'GE';
@@ -246,20 +248,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   src={profile.profileImage}
                   alt={activeName}
                   className={`w-8 h-8 rounded-full object-cover shrink-0 ring-1 ${
-                    effectiveRole === 'Dueño' ? 'ring-purple-400' : 'ring-blue-500'
+                    isOwner ? 'ring-purple-400' : 'ring-blue-500'
                   }`}
                 />
               ) : (
                 <div
                   className={`w-8 h-8 rounded-full ${
-                    effectiveRole === 'Dueño'
+                    isOwner
                       ? 'bg-purple-600'
                       : isContador
-                      ? 'bg-amber-600'
+                      ? 'bg-orange-500'
                       : 'bg-slate-700 group-hover:bg-blue-600'
                   } flex items-center justify-center text-xs font-semibold text-white shrink-0 transition-colors`}
                 >
-                  {effectiveRole === 'Dueño' ? (
+                  {isOwner ? (
                     <Crown className="w-3.5 h-3.5 fill-white text-white" />
                   ) : (
                     activeInitials
@@ -269,12 +271,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="overflow-hidden">
                 <p className="text-xs font-medium text-white truncate group-hover:text-blue-200 transition-colors flex items-center gap-1">
                   <span>{activeName}</span>
-                  {effectiveRole === 'Dueño' && (
+                  {isOwner && (
                     <Crown className="w-2.5 h-2.5 fill-purple-400 text-purple-400 shrink-0" />
                   )}
                 </p>
                 <p className="text-[11px] text-slate-400 truncate">
-                  {effectiveRole === 'Dueño'
+                  {isOwner
                     ? 'Dueño · Plan Empresarial'
                     : isContador
                     ? 'Rol: Contador'

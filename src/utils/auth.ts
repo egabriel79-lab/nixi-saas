@@ -24,7 +24,7 @@ export const INITIAL_REGISTERED_USERS: StoredUserAccount[] = [
   {
     name: 'Gabriel Echeverría',
     email: 'egabriel79@gmail.com',
-    role: 'Administrador',
+    role: 'Dueño',
     password: 'password123',
   },
 ];

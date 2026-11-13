@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Mail, Lock, User, ArrowRight, ArrowLeft, Loader2, Eye, EyeOff, ShieldCheck, CheckCircle2, Building2 } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, ArrowLeft, Loader2, Eye, EyeOff, ShieldCheck, CheckCircle2, Building2, AlertCircle } from 'lucide-react';
 import { useUser } from '../../context/UserContext';
+import { supabase } from '../../supabaseClient.js';
 
 interface RegisterViewProps {
   onRegister: (data: {
@@ -29,32 +30,68 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !email.trim() || !password.trim()) return;
 
     setIsLoading(true);
+    setErrorMessage(null);
 
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim() || 'Nuevo Usuario';
-    const finalCompanyName = companyName.trim() || `Inversiones ${fullName}`;
-    const finalCompanyRif = companyRif.trim().toUpperCase() || `J-${Math.floor(10000000 + Math.random() * 90000000)}-1`;
+    // Nombre de la empresa o nombre del usuario si no puso empresa
+    const finalCompanyName = companyName.trim() || fullName;
+    // RIF o texto por defecto
+    const finalCompanyRif = companyRif.trim().toUpperCase() || 'J-00000000-0';
+    const userEmail = email.trim().toLowerCase();
+
+    // Fecha actual + 7 días para el periodo de prueba
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + 7);
 
     updateProfile({
       fullName,
-      email: email.trim(),
+      email: userEmail,
       companyName: finalCompanyName,
       companyRif: finalCompanyRif,
     });
 
+    // Inserción explícita en la tabla 'empresas' de Supabase
+    try {
+      const { data: dbData, error: dbError } = await supabase
+        .from('empresas')
+        .insert([
+          {
+            nombre: finalCompanyName,
+            rif: finalCompanyRif,
+            email: userEmail,
+            estado: 'Trial',
+            fecha_vencimiento: expDate.toISOString(),
+          },
+        ])
+        .select();
+
+      if (dbError) {
+        console.warn('Aviso al insertar en tabla empresas de Supabase:', dbError.message);
+        // Si no es error crítico, continuamos el flujo de registro
+      } else {
+        console.info('✅ Empresa registrada con éxito en Supabase:', dbData);
+      }
+    } catch (err: any) {
+      console.error('Error conectando a Supabase durante el registro:', err);
+    }
+
     try {
       await onRegister({
         name: fullName,
-        email: email.trim(),
+        email: userEmail,
         password: password.trim(),
         companyName: finalCompanyName,
         companyRif: finalCompanyRif,
       });
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Error al completar el registro');
     } finally {
       setIsLoading(false);
     }
@@ -89,6 +126,14 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
             Empieza a facturar legalmente y a cobrar a tiempo en minutos
           </p>
         </div>
+
+        {/* Error banner si hubo problema */}
+        {errorMessage && (
+          <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
 
         {/* Register Form directo sobre fondo liso */}
         <form onSubmit={handleSubmit} className="space-y-4">

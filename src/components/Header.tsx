@@ -135,8 +135,10 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const activeName = currentUser?.name || userName || profile.fullName;
+  const activeEmail = (currentUser?.email || '').trim().toLowerCase();
   const activeRole = currentUser?.role || userRole || 'Administrador';
-  const isContador = activeRole.toLowerCase().includes('contad');
+  const isOwner = activeEmail === 'egabriel79@gmail.com' || activeRole === 'Dueño';
+  const isContador = !isOwner && activeRole.toLowerCase().includes('contad');
 
   // Cálculo dinámico de iniciales (GE para Gabriel Echeverría, CP para Carlos Peña, etc.)
   const userInitials = (() => {
@@ -209,14 +211,14 @@ export const Header: React.FC<HeaderProps> = ({
                   {activeName}
                 </span>
 
-                {/* Badge de Rol dinámico: Dueño con Corona morada, Admin en azul, Contador en amarillo */}
-                {activeRole === 'Dueño' ? (
+                {/* Badge de Rol dinámico: Dueño en morado claro, Admin en azul claro, Contador en naranja claro */}
+                {isOwner ? (
                   <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200 shadow-2xs tracking-wide inline-flex items-center gap-1">
                     <Crown className="w-3 h-3 text-purple-600 fill-purple-600" />
                     Dueño
                   </span>
                 ) : isContador ? (
-                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-yellow-50 text-orange-900 border border-yellow-300 shadow-2xs tracking-wide">
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200 shadow-2xs tracking-wide">
                     Contador
                   </span>
                 ) : (
@@ -226,7 +228,7 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </div>
               <span className="text-[11px] font-medium text-slate-500 mt-1">
-                {activeRole === 'Dueño'
+                {isOwner
                   ? 'Dueño · Propietario Nixi'
                   : isContador
                   ? 'Operaciones Contables'
@@ -240,24 +242,24 @@ export const Header: React.FC<HeaderProps> = ({
                 src={profile.profileImage}
                 alt={activeName}
                 className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full object-cover ring-2 ${
-                  activeRole === 'Dueño'
+                  isOwner
                     ? 'ring-purple-500 shadow-xs'
                     : isContador
-                    ? 'ring-amber-400'
+                    ? 'ring-orange-400'
                     : 'ring-blue-500 group-hover:ring-blue-600'
                 } shadow-xs transition-all`}
               />
             ) : (
               <div
                 className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full ${
-                  activeRole === 'Dueño'
+                  isOwner
                     ? 'bg-purple-600 group-hover:bg-purple-700'
                     : isContador
-                    ? 'bg-amber-600'
+                    ? 'bg-orange-500'
                     : 'bg-slate-900 group-hover:bg-blue-600'
                 } text-white font-bold flex items-center justify-center text-xs ring-2 ring-slate-100 shadow-xs transition-colors`}
               >
-                {activeRole === 'Dueño' ? (
+                {isOwner ? (
                   <Crown className="w-4 h-4 fill-white text-white" />
                 ) : (
                   userInitials
@@ -268,13 +270,13 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Badge visible en móviles */}
           <div className="md:hidden flex items-center">
-            {activeRole === 'Dueño' ? (
+            {isOwner ? (
               <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-0.5">
                 <Crown className="w-2.5 h-2.5 fill-purple-600 text-purple-600" />
                 Dueño
               </span>
             ) : isContador ? (
-              <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-yellow-50 text-orange-900 border border-yellow-300">
+              <span className="px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-orange-100 text-orange-800 border border-orange-200">
                 Contador
               </span>
             ) : (

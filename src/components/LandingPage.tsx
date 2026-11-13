@@ -557,15 +557,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <a href="#soporte" onClick={(e) => { e.preventDefault(); }} className="hover:text-slate-200 transition-colors">
                 Soporte
               </a>
-              <span className="text-slate-700">•</span>
-              <button
-                type="button"
-                onClick={() => onNavigate('superadmin')}
-                className="hover:text-purple-400 text-slate-400 transition-colors inline-flex items-center gap-1 cursor-pointer font-medium"
-                title="Panel de Control Global (Sólo Dueño SaaS)"
-              >
-                <span>⚡ Superadmin</span>
-              </button>
             </div>
             <span className="text-slate-500 font-mono">
               © 2026 Nixi. Todos los derechos reservados.

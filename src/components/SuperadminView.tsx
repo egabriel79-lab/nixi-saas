@@ -22,6 +22,7 @@ import {
   CreditCard,
   ChevronRight,
   Loader2,
+  Plus,
 } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 
@@ -128,35 +129,49 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
     fetchEmpresas();
   }, []);
 
-  // Comprobantes de Pago Móvil por verificar
-  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>([
-    {
-      id: 'pay-001',
-      clientName: 'Servicios Industriales Tuy S.A.',
-      clientRif: 'J-41239845-2',
-      bank: 'Banesco Banco Universal (0134)',
-      targetPhone: '0414-4975296',
-      reference: '09841284',
-      amountVes: 4480.6,
-      amountUsd: 5.0,
-      date: '09 Mar 2026',
-      time: '09:42 AM',
-      status: 'pending',
-    },
-    {
-      id: 'pay-002',
-      clientName: 'Alimentos y Suministros Caracas S.R.L.',
-      clientRif: 'J-31948572-0',
-      bank: 'Banco Mercantil (0105)',
-      targetPhone: '0424-9876543',
-      reference: 'MERC-883921',
-      amountVes: 4480.6,
-      amountUsd: 5.0,
-      date: '09 Mar 2026',
-      time: '08:15 AM',
-      status: 'pending',
-    },
-  ]);
+  // Comprobantes de Pago Móvil por verificar (sin datos mock; vacío por defecto)
+  const [pendingPayments, setPendingPayments] = useState<PendingPayment[]>(() => {
+    try {
+      const saved = localStorage.getItem('nixi_pending_payments');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const handleCreateDemoCompany = async () => {
+    setIsLoading(true);
+    try {
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + 7);
+      const testRif = `J-${Math.floor(10000000 + Math.random() * 90000000)}-1`;
+      const { data, error } = await supabase
+        .from('empresas')
+        .insert([
+          {
+            nombre: `Corporación de Prueba ${Math.floor(100 + Math.random() * 900)} C.A.`,
+            rif: testRif,
+            email: `empresa_${Date.now().toString().slice(-4)}@nixi.test`,
+            estado: 'Trial',
+            fecha_vencimiento: expDate.toISOString(),
+          },
+        ])
+        .select();
+
+      if (error) {
+        onShowToast(`Error de Supabase: ${error.message}`, 'warning');
+      } else {
+        onShowToast('✅ Empresa de prueba insertada en Supabase', 'success');
+        await fetchEmpresas();
+      }
+    } catch (e: any) {
+      onShowToast(`Error: ${e.message}`, 'warning');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Filtros y estados de UI
   const [searchQuery, setSearchQuery] = useState('');
@@ -539,11 +554,19 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
               <div className="flex items-center gap-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                {pendingVouchersCount > 0 && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                )}
                 <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight">
                   Comprobantes por Verificar
                 </h2>
-                <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                <span
+                  className={`px-2.5 py-0.5 text-xs font-bold rounded-full border ${
+                    pendingVouchersCount > 0
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                  }`}
+                >
                   {pendingVouchersCount} pendientes
                 </span>
               </div>
@@ -558,8 +581,21 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {pendingPayments.map((payment) => (
+          {pendingPayments.length === 0 ? (
+            <div className="py-14 px-4 rounded-xl border border-dashed border-slate-700/80 bg-slate-900/40 text-center flex flex-col items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-slate-400 mb-3 shadow-inner">
+                <CheckCircle className="w-6 h-6 text-slate-500" />
+              </div>
+              <h3 className="text-sm font-semibold text-slate-300">
+                No hay comprobantes pendientes por verificar
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-sm">
+                Todos los pagos móviles han sido validados o aún no se han reportado nuevos comprobantes.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {pendingPayments.map((payment) => (
               <div
                 key={payment.id}
                 className={`rounded-xl border p-4 sm:p-5 transition-all ${
@@ -737,6 +773,7 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
               </div>
             ))}
           </div>
+        )}
         </section>
 
         {/* 3. Gestión de Clientes (Lista de Empresas) */}
@@ -828,14 +865,34 @@ export const SuperadminView: React.FC<SuperadminViewProps> = ({
                 ) : filteredCompanies.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-12 text-center text-slate-400">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <Building2 className="w-8 h-8 text-slate-600" />
-                        <p className="text-sm font-semibold text-slate-300">No se encontraron empresas</p>
-                        <p className="text-xs text-slate-500">
-                          {searchQuery || filterStatus !== 'todos'
-                            ? 'Intenta ajustar los filtros de búsqueda.'
-                            : 'Aún no hay empresas registradas en la base de datos de Supabase.'}
-                        </p>
+                      <div className="flex flex-col items-center justify-center gap-3">
+                        <Building2 className="w-9 h-9 text-slate-600" />
+                        <div>
+                          <p className="text-sm font-semibold text-slate-300">No se encontraron empresas</p>
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {searchQuery || filterStatus !== 'todos'
+                              ? 'Intenta ajustar los filtros de búsqueda.'
+                              : 'Aún no hay empresas registradas en la base de datos de Supabase.'}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={fetchEmpresas}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-all cursor-pointer"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Recargar</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreateDemoCompany}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-purple-300 hover:text-white bg-purple-950/60 hover:bg-purple-600/80 border border-purple-800/80 rounded-lg transition-all cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5 text-purple-400" />
+                            <span>Crear Empresa de Prueba</span>
+                          </button>
+                        </div>
                       </div>
                     </td>
                   </tr>
