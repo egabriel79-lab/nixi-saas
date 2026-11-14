@@ -200,7 +200,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         {/* 2. Hero Section (Inspirado en Digital Planai) */}
         <section className="pt-20 sm:pt-32 pb-24 sm:pb-32 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center">
           {/* Texto superior en lugar del badge anterior */}
-          <p className="text-lg sm:text-xl font-bold tracking-widest text-blue-400 uppercase mb-6 sm:mb-8 animate-in fade-in duration-300">
+          <p className="text-3xl sm:text-4xl font-extrabold tracking-[0.22em] text-blue-400 uppercase mb-6 sm:mb-8 animate-in fade-in duration-300">
             NIXI
           </p>
 
