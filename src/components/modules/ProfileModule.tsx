@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
   Camera,
@@ -83,8 +83,8 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
   };
 
   const effectiveRole = currentUser?.role || userRole;
-  const isCurrentLoggedDueño = effectiveRole === 'Dueño';
-  const isContador = effectiveRole.toLowerCase().includes('contad');
+  const isCurrentLoggedDueño = effectiveRole === 'Dueño' || isSuperAdmin || effectiveRole === 'Administrador';
+  const isContador = !isSuperAdmin && effectiveRole.toLowerCase().includes('contad');
 
   // Navigation tab state
   const [activeTab, setActiveTab] = useState<'datos' | 'equipo'>(initialTab);
@@ -429,14 +429,14 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
     }
 
     // Check if team member limit of 5 has been reached
-    if (teamMembers.length >= 5) {
+    if (effectiveTeamMembers.length >= 5) {
       onShowToast('Has alcanzado el límite de 5 miembros de tu plan actual', 'warning');
       setIsInviteModalOpen(false);
       return;
     }
 
     // Check if email already exists in team
-    const exists = teamMembers.some((m) => m.email.toLowerCase() === cleanEmail);
+    const exists = effectiveTeamMembers.some((m) => m.email.toLowerCase() === cleanEmail);
     if (exists) {
       onShowToast('Este correo ya está registrado en tu equipo de Nixi', 'warning');
       return;
@@ -518,21 +518,68 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
     handleCloseMemberActions();
   };
 
+  // Garantizar que el usuario logueado (currentUser) siempre figure como el primer miembro con rol "Dueño"
+  const effectiveTeamMembers = useMemo<TeamMember[]>(() => {
+    const ownerEmail = (currentUser?.email || profile?.email || 'egabriel79@gmail.com').trim();
+    const ownerName = (currentUser?.name || profile?.fullName || 'Propietario de la Cuenta').trim();
+
+    const hasOwner = teamMembers.some(
+      (m) =>
+        m.role === 'Dueño' ||
+        Boolean(m.isOwner) ||
+        (ownerEmail && m.email.trim().toLowerCase() === ownerEmail.toLowerCase())
+    );
+
+    if (hasOwner) {
+      return teamMembers.map((m) => {
+        if (
+          m.role === 'Dueño' ||
+          Boolean(m.isOwner) ||
+          (ownerEmail && m.email.trim().toLowerCase() === ownerEmail.toLowerCase())
+        ) {
+          return {
+            ...m,
+            name: ownerName || m.name,
+            email: ownerEmail || m.email,
+            role: 'Dueño',
+            isOwner: true,
+            status: 'Activo',
+          };
+        }
+        return m;
+      });
+    }
+
+    const ownerEntry: TeamMember = {
+      id: 'usr-owner',
+      name: ownerName,
+      email: ownerEmail,
+      role: 'Dueño',
+      status: 'Activo',
+      isOwner: true,
+      avatarColor: 'bg-purple-600',
+      joinedDate: 'Creador de la cuenta',
+      lastActive: 'En línea ahora',
+    };
+
+    return [ownerEntry, ...teamMembers];
+  }, [teamMembers, currentUser, profile.fullName, profile.email]);
+
   // KPI counts and team limits
   const MAX_TEAM_MEMBERS = 5;
-  const totalMembersCount = teamMembers.length;
+  const totalMembersCount = effectiveTeamMembers.length;
   const hasReachedLimit = totalMembersCount >= MAX_TEAM_MEMBERS;
-  const ownerCount = teamMembers.filter((m) => m.role === 'Dueño').length;
-  const adminCount = teamMembers.filter((m) => m.role === 'Administrador').length;
-  const accountantCount = teamMembers.filter((m) => m.role === 'Contador').length;
-  const pendingCount = teamMembers.filter((m) => m.status === 'Pendiente').length;
+  const ownerCount = effectiveTeamMembers.filter((m) => m.role === 'Dueño' || Boolean(m.isOwner)).length;
+  const adminCount = effectiveTeamMembers.filter((m) => m.role === 'Administrador' && !m.isOwner).length;
+  const accountantCount = effectiveTeamMembers.filter((m) => m.role === 'Contador').length;
+  const pendingCount = effectiveTeamMembers.filter((m) => m.status === 'Pendiente').length;
 
   // Filtrado reactivo del Directorio Corporativo (Parte 1)
-  const miembrosFiltrados = teamMembers.filter((m) => {
+  const miembrosFiltrados = effectiveTeamMembers.filter((m) => {
     if (filtroRol === 'Todos') return true;
     if (filtroRol === 'Pendiente') return m.status === 'Pendiente';
-    if (filtroRol === 'Dueño') return m.role === 'Dueño';
-    if (filtroRol === 'Administrador') return m.role === 'Administrador';
+    if (filtroRol === 'Dueño') return m.role === 'Dueño' || Boolean(m.isOwner);
+    if (filtroRol === 'Administrador') return m.role === 'Administrador' && !m.isOwner;
     if (filtroRol === 'Contador') return m.role === 'Contador';
     return true;
   });
@@ -592,7 +639,7 @@ export const ProfileModule: React.FC<ProfileModuleProps> = ({
                     : 'bg-slate-100 text-slate-700'
                 }`}
               >
-                {teamMembers.length}
+                {effectiveTeamMembers.length}
               </span>
             </button>
           </div>

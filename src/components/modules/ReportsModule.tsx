@@ -35,25 +35,11 @@ interface MonthlyData {
   collected: number;
 }
 
-const EMPTY_MONTHLY_STATS: MonthlyData[] = [
-  { month: 'Octubre 2025', shortMonth: 'Oct', invoiced: 0, collected: 0 },
-  { month: 'Noviembre 2025', shortMonth: 'Nov', invoiced: 0, collected: 0 },
-  { month: 'Diciembre 2025', shortMonth: 'Dic', invoiced: 0, collected: 0 },
-  { month: 'Enero 2026', shortMonth: 'Ene', invoiced: 0, collected: 0 },
-  { month: 'Febrero 2026', shortMonth: 'Feb', invoiced: 0, collected: 0 },
-  { month: 'Marzo 2026', shortMonth: 'Mar', invoiced: 0, collected: 0 },
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
-
-const MONTHLY_STATS: MonthlyData[] = [
-  { month: 'Octubre 2025', shortMonth: 'Oct', invoiced: 28400, collected: 25100 },
-  { month: 'Noviembre 2025', shortMonth: 'Nov', invoiced: 34200, collected: 31500 },
-  { month: 'Diciembre 2025', shortMonth: 'Dic', invoiced: 42600, collected: 38900 },
-  { month: 'Enero 2026', shortMonth: 'Ene', invoiced: 29800, collected: 24600 },
-  { month: 'Febrero 2026', shortMonth: 'Feb', invoiced: 36500, collected: 33200 },
-  { month: 'Marzo 2026', shortMonth: 'Mar', invoiced: 41200, collected: 35800 },
-];
-
-const MAX_CHART_VALUE = 45000;
+const SHORT_MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => {
   const { bcvRate, formatVes } = useBcv();
@@ -135,7 +121,7 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
         } else if (fileExtension === 'xlsx') {
           mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
           content = `Reporte Ejecutivo Nixi - ${reportName}\nGenerado: ${new Date().toLocaleString()}\nTasa Oficial BCV: Bs. ${bcvRate}\n\nPeriodo,Facturado,Cobrado,Efectividad\n` +
-            MONTHLY_STATS.map(m => `${m.month},$${m.invoiced},$${m.collected},${((m.collected / m.invoiced) * 100).toFixed(1)}%`).join('\n');
+            monthlyStats.map(m => `${m.month},$${m.invoiced.toFixed(2)},$${m.collected.toFixed(2)},${m.invoiced > 0 ? ((m.collected / m.invoiced) * 100).toFixed(1) : '0.0'}%`).join('\n');
         } else {
           mimeType = 'application/pdf';
           content = `%PDF-1.4\n% Nixi Reporte Financiero: ${reportName}\nGenerado el: ${new Date().toISOString()}\nTotal Facturado: $${metricasDashboard.totalFacturadoUsd}\nTotal Pendiente: $${metricasDashboard.totalPendienteUsd}\n`;
@@ -161,12 +147,92 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
     }, 1500);
   };
 
-  const monthlyStats = useMemo(() => {
-    if (facturas.length === 0) {
-      return EMPTY_MONTHLY_STATS;
+  // Facturas pagadas reales
+  const paidInvoices = useMemo(
+    () => facturas.filter((f) => f.status === 'pagada'),
+    [facturas]
+  );
+
+  // Periodo Medio de Cobro (PMC) real basado en facturas pagadas
+  const pmcDays = useMemo(() => {
+    if (paidInvoices.length === 0) return 0;
+    const now = Date.now();
+    const totalDays = paidInvoices.reduce((acc, inv) => {
+      const parsed = Date.parse(inv.issueDate);
+      if (!isNaN(parsed)) {
+        const diffDays = Math.max(1, Math.round(Math.abs(now - parsed) / (1000 * 60 * 60 * 24)));
+        return acc + diffDays;
+      }
+      return acc + 1;
+    }, 0);
+    return Math.round(totalDays / paidInvoices.length);
+  }, [paidInvoices]);
+
+  // Rotación de Cartera real basada en cobros efectivos vs cartera
+  const rotacionCartera = useMemo(() => {
+    if (paidInvoices.length === 0) return 0;
+    const paidSum = paidInvoices.reduce((acc, f) => acc + (f.amount || 0), 0);
+    const totalSum = facturas.reduce((acc, f) => acc + (f.amount || 0), 0);
+    if (totalSum <= 0) return 0;
+    return Number(((paidSum / totalSum) * 12).toFixed(1));
+  }, [facturas, paidInvoices]);
+
+  // Datos mensuales reales (Últimos 6 meses hasta el mes actual)
+  const monthlyStats = useMemo<MonthlyData[]>(() => {
+    const now = new Date();
+    const monthsWindow: { year: number; monthIdx: number; label: string; short: string }[] = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      monthsWindow.push({
+        year: d.getFullYear(),
+        monthIdx: d.getMonth(),
+        label: `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`,
+        short: SHORT_MONTHS[d.getMonth()],
+      });
     }
-    return MONTHLY_STATS;
+
+    const buckets = monthsWindow.map((m) => ({
+      month: m.label,
+      shortMonth: m.short,
+      invoiced: 0,
+      collected: 0,
+    }));
+
+    facturas.forEach((inv) => {
+      const amt = Number(inv.amount || 0);
+      if (amt <= 0) return;
+
+      let targetIdx = buckets.length - 1; // Por defecto mes actual (ej. 'Hoy')
+      const parsed = Date.parse(inv.issueDate);
+      if (!isNaN(parsed)) {
+        const invDate = new Date(parsed);
+        const foundIdx = monthsWindow.findIndex(
+          (m) => m.year === invDate.getFullYear() && m.monthIdx === invDate.getMonth()
+        );
+        if (foundIdx !== -1) {
+          targetIdx = foundIdx;
+        }
+      }
+
+      buckets[targetIdx].invoiced += amt;
+      if (inv.status === 'pagada') {
+        buckets[targetIdx].collected += amt;
+      }
+    });
+
+    return buckets;
   }, [facturas]);
+
+  const hasSufficientChartData = paidInvoices.length > 0 || facturas.length >= 2;
+
+  const maxChartValue = useMemo(() => {
+    const maxVal = monthlyStats.reduce(
+      (max, item) => Math.max(max, item.invoiced, item.collected),
+      0
+    );
+    return maxVal > 0 ? Math.ceil(maxVal * 1.2) : 100;
+  }, [monthlyStats]);
 
   const pronosticoLiquidez = useMemo(() => {
     if (facturas.length === 0) return 0;
@@ -266,12 +332,12 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
 
             <div className="flex items-baseline gap-2.5 mt-1 flex-wrap">
               <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight whitespace-nowrap">
-                {facturas.length > 0 ? '24 días' : '0 días'}
+                {pmcDays > 0 ? `${pmcDays} ${pmcDays === 1 ? 'día' : 'días'}` : '0 días'}
               </span>
-              {facturas.length > 0 ? (
+              {pmcDays > 0 ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100/70 text-emerald-800 border border-emerald-200">
                   <TrendingDown className="w-3 h-3 text-emerald-600" />
-                  <span>-2 días vs mes anterior</span>
+                  <span>Promedio real</span>
                 </span>
               ) : (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
@@ -301,10 +367,10 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
 
             <div className="flex items-baseline gap-2.5 mt-1 flex-wrap">
               <span className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight whitespace-nowrap">
-                {facturas.length > 0 ? '3.2 veces' : '0 veces'}
+                {rotacionCartera > 0 ? `${rotacionCartera} veces` : '0 veces'}
               </span>
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                {facturas.length > 0 ? 'Estable' : '0 veces'}
+                {rotacionCartera > 0 ? 'Activa' : '0 veces'}
               </span>
             </div>
           </div>
@@ -378,91 +444,110 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
 
         {/* Bar Chart Area built with clean Tailwind CSS divs */}
         <div className="mt-6 pt-4">
-          <div className="relative">
-            {/* Horizontal Grid lines */}
-            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
-              {[45, 30, 15, 0].map((val, idx) => (
-                <div key={idx} className="flex items-center w-full">
-                  <span className="text-[10px] font-mono text-slate-400 w-12 text-right pr-2 shrink-0">
-                    ${val}k
-                  </span>
-                  <div className="w-full border-b border-slate-100"></div>
-                </div>
-              ))}
+          {!hasSufficientChartData ? (
+            <div className="h-64 sm:h-72 rounded-xl border border-dashed border-slate-200 bg-slate-50/70 flex flex-col items-center justify-center text-center px-6">
+              <div className="w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 mb-3 shadow-2xs">
+                <BarChart3 className="w-6 h-6 text-slate-400" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">
+                Sin datos suficientes para graficar
+              </h3>
+              <p className="text-xs text-slate-500 mt-1 max-w-md">
+                {facturas.length === 0
+                  ? 'Aún no hay facturas registradas para generar la comparativa mensual.'
+                  : 'Registra al menos un cobro confirmado o emite más facturas para visualizar la comparativa de Ingresos vs Cobros.'}
+              </p>
             </div>
+          ) : (
+            <div className="relative">
+              {/* Horizontal Grid lines */}
+              <div className="absolute inset-0 flex flex-col justify-between pointer-events-none pb-8">
+                {[1, 0.66, 0.33, 0].map((ratio, idx) => {
+                  const val = Math.round(maxChartValue * ratio);
+                  return (
+                    <div key={idx} className="flex items-center w-full">
+                      <span className="text-[10px] font-mono text-slate-400 w-14 text-right pr-2 shrink-0">
+                        ${val.toLocaleString('en-US')}
+                      </span>
+                      <div className="w-full border-b border-slate-100"></div>
+                    </div>
+                  );
+                })}
+              </div>
 
-            {/* Bars Container */}
-            <div className="pl-14 pr-2 pt-2 pb-8 h-64 sm:h-72 flex items-end justify-between gap-2 sm:gap-6 relative z-10">
-              {monthlyStats.map((item, index) => {
-                const invoicedHeight =
-                  MAX_CHART_VALUE > 0 && item.invoiced > 0 ? (item.invoiced / MAX_CHART_VALUE) * 100 : 0;
-                const collectedHeight =
-                  MAX_CHART_VALUE > 0 && item.collected > 0 ? (item.collected / MAX_CHART_VALUE) * 100 : 0;
-                const efficiency =
-                  item.invoiced > 0 ? ((item.collected / item.invoiced) * 100).toFixed(1) : '0';
-                const isHovered = hoveredBarIndex === index;
+              {/* Bars Container */}
+              <div className="pl-16 pr-2 pt-2 pb-8 h-64 sm:h-72 flex items-end justify-between gap-2 sm:gap-6 relative z-10">
+                {monthlyStats.map((item, index) => {
+                  const invoicedHeight =
+                    maxChartValue > 0 && item.invoiced > 0 ? (item.invoiced / maxChartValue) * 100 : 0;
+                  const collectedHeight =
+                    maxChartValue > 0 && item.collected > 0 ? (item.collected / maxChartValue) * 100 : 0;
+                  const efficiency =
+                    item.invoiced > 0 ? ((item.collected / item.invoiced) * 100).toFixed(1) : '0';
+                  const isHovered = hoveredBarIndex === index;
 
-                return (
-                  <div
-                    key={item.month}
-                    className="flex-1 flex flex-col items-center h-full justify-end relative group cursor-pointer"
-                    onMouseEnter={() => setHoveredBarIndex(index)}
-                    onMouseLeave={() => setHoveredBarIndex(null)}
-                  >
-                    {/* Tooltip on hover */}
-                    {isHovered && (
-                      <div className="absolute -top-16 z-20 bg-slate-900 text-white text-[11px] py-1.5 px-3 rounded-lg shadow-xl pointer-events-none whitespace-nowrap animate-in fade-in duration-150">
-                        <p className="font-semibold text-slate-200">{item.month}</p>
-                        <div className="flex items-center gap-3 mt-0.5">
-                          <span className="text-blue-300 font-mono">
-                            Fac: ${item.invoiced.toLocaleString()}
-                          </span>
-                          <span className="text-emerald-300 font-mono">
-                            Cob: ${item.collected.toLocaleString()}
-                          </span>
+                  return (
+                    <div
+                      key={item.month}
+                      className="flex-1 flex flex-col items-center h-full justify-end relative group cursor-pointer"
+                      onMouseEnter={() => setHoveredBarIndex(index)}
+                      onMouseLeave={() => setHoveredBarIndex(null)}
+                    >
+                      {/* Tooltip on hover */}
+                      {isHovered && (
+                        <div className="absolute -top-16 z-20 bg-slate-900 text-white text-[11px] py-1.5 px-3 rounded-lg shadow-xl pointer-events-none whitespace-nowrap animate-in fade-in duration-150">
+                          <p className="font-semibold text-slate-200">{item.month}</p>
+                          <div className="flex items-center gap-3 mt-0.5">
+                            <span className="text-blue-300 font-mono">
+                              Fac: ${item.invoiced.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                            <span className="text-emerald-300 font-mono">
+                              Cob: ${item.collected.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Efectividad: {efficiency}%
+                          </p>
+                          <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-slate-900 rotate-45"></div>
                         </div>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          Efectividad: {efficiency}%
-                        </p>
-                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-slate-900 rotate-45"></div>
+                      )}
+
+                      {/* Bars pair */}
+                      <div className="w-full max-w-[54px] flex items-end justify-center gap-1 sm:gap-2 h-full">
+                        {/* Bar: Invoiced (Blue) */}
+                        <div
+                          className={`w-1/2 bg-blue-600 hover:bg-blue-700 transition-all duration-300 rounded-t-sm sm:rounded-t-md relative flex items-center justify-center shadow-xs ${
+                            invoicedHeight === 0 ? 'h-0.5 bg-slate-200' : ''
+                          }`}
+                          style={{ height: invoicedHeight > 0 ? `${invoicedHeight}%` : '2px' }}
+                          title={`${item.month} - Emitido: $${item.invoiced.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                        ></div>
+
+                        {/* Bar: Collected (Emerald) */}
+                        <div
+                          className={`w-1/2 bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 rounded-t-sm sm:rounded-t-md relative flex items-center justify-center shadow-xs ${
+                            collectedHeight === 0 ? 'h-0.5 bg-slate-200' : ''
+                          }`}
+                          style={{ height: collectedHeight > 0 ? `${collectedHeight}%` : '2px' }}
+                          title={`${item.month} - Cobrado: $${item.collected.toLocaleString('en-US', { minimumFractionDigits: 2 })}`}
+                        ></div>
                       </div>
-                    )}
 
-                    {/* Bars pair */}
-                    <div className="w-full max-w-[54px] flex items-end justify-center gap-1 sm:gap-2 h-full">
-                      {/* Bar: Invoiced (Blue) */}
-                      <div
-                        className={`w-1/2 bg-blue-600 hover:bg-blue-700 transition-all duration-300 rounded-t-sm sm:rounded-t-md relative flex items-center justify-center shadow-xs ${
-                          invoicedHeight === 0 ? 'h-0.5 bg-slate-200' : ''
-                        }`}
-                        style={{ height: invoicedHeight > 0 ? `${invoicedHeight}%` : '2px' }}
-                        title={`${item.month} - Emitido: $${item.invoiced.toLocaleString()}`}
-                      ></div>
-
-                      {/* Bar: Collected (Emerald) */}
-                      <div
-                        className={`w-1/2 bg-emerald-500 hover:bg-emerald-600 transition-all duration-300 rounded-t-sm sm:rounded-t-md relative flex items-center justify-center shadow-xs ${
-                          collectedHeight === 0 ? 'h-0.5 bg-slate-200' : ''
-                        }`}
-                        style={{ height: collectedHeight > 0 ? `${collectedHeight}%` : '2px' }}
-                        title={`${item.month} - Cobrado: $${item.collected.toLocaleString()}`}
-                      ></div>
+                      {/* Month Label below */}
+                      <div className="absolute -bottom-6 text-center">
+                        <span className="text-xs font-medium text-slate-600 block sm:hidden">
+                          {item.shortMonth}
+                        </span>
+                        <span className="text-xs font-medium text-slate-600 hidden sm:block">
+                          {item.shortMonth}
+                        </span>
+                      </div>
                     </div>
-
-                    {/* Month Label below */}
-                    <div className="absolute -bottom-6 text-center">
-                      <span className="text-xs font-medium text-slate-600 block sm:hidden">
-                        {item.shortMonth}
-                      </span>
-                      <span className="text-xs font-medium text-slate-600 hidden sm:block">
-                        {item.shortMonth}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Bottom Chart Performance Metrics Footer */}
           <div className="mt-8 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3 text-center sm:text-left">

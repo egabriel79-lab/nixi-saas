@@ -504,6 +504,53 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [teamMembers]);
 
+  // Asegurar que currentUser siempre cuente como el primer miembro del equipo con rol "Dueño"
+  useEffect(() => {
+    if (!currentUser || !currentUser.name || !currentUser.name.trim()) return;
+
+    const userEmail = (currentUser.email || '').trim().toLowerCase();
+    const userName = currentUser.name.trim();
+
+    setTeamMembers((prev) => {
+      const hasOwnerOrCurrent = prev.some(
+        (m) =>
+          m.isOwner ||
+          m.role === 'Dueño' ||
+          (userEmail && m.email.trim().toLowerCase() === userEmail)
+      );
+
+      if (hasOwnerOrCurrent) {
+        return prev.map((m) => {
+          if (m.isOwner || m.role === 'Dueño' || (userEmail && m.email.trim().toLowerCase() === userEmail)) {
+            return {
+              ...m,
+              name: userName,
+              email: currentUser.email || m.email,
+              role: 'Dueño',
+              isOwner: true,
+              status: 'Activo',
+            };
+          }
+          return m;
+        });
+      }
+
+      const ownerMember: TeamMember = {
+        id: 'usr-owner',
+        name: userName,
+        email: currentUser.email || 'admin@nixi.app',
+        role: 'Dueño',
+        status: 'Activo',
+        isOwner: true,
+        avatarColor: 'bg-purple-600',
+        joinedDate: 'Creador de la cuenta',
+        lastActive: 'En línea ahora',
+      };
+
+      return [ownerMember, ...prev];
+    });
+  }, [currentUser]);
+
   // Recalculate Dashboard metrics whenever facturas change
   const metricasDashboard = useMemo<DashboardMetrics>(() => {
     if (!facturas || facturas.length === 0) {
