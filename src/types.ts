@@ -1,4 +1,4 @@
-export type ViewMode = 'landing' | 'login' | 'register' | 'checkout' | 'dashboard' | 'help' | 'superadmin';
+export type ViewMode = 'landing' | 'login' | 'register' | 'checkout' | 'dashboard' | 'help' | 'superadmin' | 'terms' | 'privacy';
 
 export type UserRole = 'Dueño' | 'Administrador' | 'Contador';
 

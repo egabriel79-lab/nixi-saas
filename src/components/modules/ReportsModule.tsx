@@ -241,11 +241,6 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
       .reduce((acc, f) => acc + (f.amount || 0), 0);
   }, [facturas]);
 
-  const totalPeriodInvoiced = monthlyStats.reduce((acc, curr) => acc + curr.invoiced, 0);
-  const totalPeriodCollected = monthlyStats.reduce((acc, curr) => acc + curr.collected, 0);
-  const collectionEfficiency =
-    totalPeriodInvoiced > 0 ? ((totalPeriodCollected / totalPeriodInvoiced) * 100).toFixed(1) : '0';
-
   return (
     <div className="space-y-6 sm:space-y-8 pb-24 sm:pb-32 overflow-visible">
       {/* 1. Module Header & Period Filter */}
@@ -548,39 +543,6 @@ export const ReportsModule: React.FC<ReportsModuleProps> = ({ onShowToast }) => 
               </div>
             </div>
           )}
-
-          {/* Bottom Chart Performance Metrics Footer */}
-          <div className="mt-8 pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3 text-center sm:text-left">
-            <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
-              <span className="text-[11px] text-slate-500 font-medium block">
-                Facturación Semestral Emitida
-              </span>
-              <span className="text-base font-bold font-mono text-slate-900">
-                ${totalPeriodInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
-              <span className="text-[11px] text-slate-500 font-medium block">
-                Recaudación Total
-              </span>
-              <span className="text-base font-bold font-mono text-emerald-600">
-                ${totalPeriodCollected.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-
-            <div className="bg-slate-50/80 p-3 rounded-lg border border-slate-100">
-              <span className="text-[11px] text-slate-500 font-medium block">
-                Efectividad de Cobranza
-              </span>
-              <span className="text-base font-bold text-blue-600">
-                {collectionEfficiency}%{' '}
-                <span className="text-xs font-normal text-slate-500">
-                  {Number(collectionEfficiency) > 0 ? '(Rendimiento óptimo)' : '(0% de efectividad)'}
-                </span>
-              </span>
-            </div>
-          </div>
         </div>
       </div>
 

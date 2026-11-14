@@ -123,7 +123,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     fetchSupabaseFacturas();
   }, [setFacturas, addToast]);
 
-  const handleAddInvoice = (newInv: Omit<Invoice, 'id'>) => {
+  const handleAddInvoice = (newInv: Omit<Invoice, 'id'> & { id?: string }) => {
     agregarFactura(newInv);
     addToast('✅ Emisión de factura exitosa', 'success');
   };

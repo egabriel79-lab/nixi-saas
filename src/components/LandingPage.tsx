@@ -546,15 +546,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           {/* Enlaces rápidos y Copyright */}
           <div className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 text-center sm:text-right">
             <div className="flex items-center gap-4 text-slate-400">
-              <a href="#terminos" onClick={(e) => { e.preventDefault(); }} className="hover:text-slate-200 transition-colors">
+              <a
+                href="#terminos"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('terms');
+                }}
+                className="hover:text-slate-200 transition-colors cursor-pointer"
+              >
                 Términos
               </a>
               <span className="text-slate-700">•</span>
-              <a href="#privacidad" onClick={(e) => { e.preventDefault(); }} className="hover:text-slate-200 transition-colors">
+              <a
+                href="#privacidad"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('privacy');
+                }}
+                className="hover:text-slate-200 transition-colors cursor-pointer"
+              >
                 Privacidad
               </a>
               <span className="text-slate-700">•</span>
-              <a href="#soporte" onClick={(e) => { e.preventDefault(); }} className="hover:text-slate-200 transition-colors">
+              <a
+                href="mailto:egabriel79@gmail.com"
+                className="hover:text-slate-200 transition-colors"
+              >
                 Soporte
               </a>
             </div>

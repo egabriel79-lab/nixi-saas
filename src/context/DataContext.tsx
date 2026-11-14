@@ -49,7 +49,7 @@ export interface DataContextType {
   metricasDashboard: DashboardMetrics;
 
   // Invoice / Payment Operations
-  agregarFactura: (nuevaFactura: Omit<Invoice, 'id'>) => Invoice;
+  agregarFactura: (nuevaFactura: Omit<Invoice, 'id'> & { id?: string }) => Invoice;
   registrarPagoFactura: (facturaId: string, metodoPago: string, referencia: string) => void;
   eliminarFactura: (facturaId: string) => void;
 
@@ -677,10 +677,10 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   // 1. Agregar Factura (Flujo Emisión)
-  const agregarFactura = (nuevaFacturaData: Omit<Invoice, 'id'>): Invoice => {
+  const agregarFactura = (nuevaFacturaData: Omit<Invoice, 'id'> & { id?: string }): Invoice => {
     const invoice: Invoice = {
       ...nuevaFacturaData,
-      id: `inv-${Date.now()}`,
+      id: nuevaFacturaData.id || `inv-${Date.now()}`,
     };
 
     setFacturas((prev) => [invoice, ...prev]);
@@ -857,12 +857,9 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // 9. Eliminar Factura y actualizar deuda si estaba pendiente
   const eliminarFactura = (facturaId: string) => {
-    let invoiceToDelete: Invoice | undefined;
+    const invoiceToDelete = facturas.find((f) => f.id === facturaId);
 
-    setFacturas((prev) => {
-      invoiceToDelete = prev.find((f) => f.id === facturaId);
-      return prev.filter((f) => f.id !== facturaId);
-    });
+    setFacturas((prev) => prev.filter((f) => f.id !== facturaId));
 
     if (invoiceToDelete && invoiceToDelete.status !== 'pagada') {
       reducirDeudaCliente(invoiceToDelete.clientTaxId, invoiceToDelete.client, invoiceToDelete.amount);

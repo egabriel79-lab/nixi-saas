@@ -31,7 +31,7 @@ import { supabase, isSupabaseConfigured } from '../../supabaseClient.js';
 
 interface BillingModuleProps {
   invoices: Invoice[];
-  onAddInvoice: (invoice: Omit<Invoice, 'id'>) => void;
+  onAddInvoice: (invoice: Omit<Invoice, 'id'> & { id?: string }) => void;
   onSendReminder: (invoice: Invoice) => void;
   onDownloadPdf: (invoice: Invoice) => void;
   onMarkAsPaid?: (invoiceId: string, paymentMethod: string, reference: string) => void;
@@ -64,6 +64,8 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
   const [isBulkReminderModalOpen, setIsBulkReminderModalOpen] = useState(false);
   const [noticeInvoice, setNoticeInvoice] = useState<Invoice | null>(null);
   const [generatingPdfId, setGeneratingPdfId] = useState<string | null>(null);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [isDeletingInvoice, setIsDeletingInvoice] = useState(false);
 
   // Quick payment form state
   const [paymentInvoiceId, setPaymentInvoiceId] = useState('');
@@ -256,15 +258,18 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
     setIsCreatingInvoice(true);
     try {
       // 1. Inserción en Supabase (tabla facturas)
-      const { data, error } = await supabase.from('facturas').insert([
-        {
-          numero_factura: newNumber.trim(),
-          monto_usd: totalUsd,
-          monto_ves: totalVes,
-          tasa_bcv: bcvRate,
-          estado: 'Pendiente',
-        },
-      ]);
+      const { data, error } = await supabase
+        .from('facturas')
+        .insert([
+          {
+            numero_factura: newNumber.trim(),
+            monto_usd: totalUsd,
+            monto_ves: totalVes,
+            tasa_bcv: bcvRate,
+            estado: 'Pendiente',
+          },
+        ])
+        .select();
 
       if (error) {
         console.warn('Aviso de Supabase al insertar factura:', error.message);
@@ -280,8 +285,10 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
         triggerToast('✅ Factura registrada en Supabase exitosamente', 'success');
       }
 
-      // 2. Mantener sincronizado el estado local
+      // 2. Mantener sincronizado el estado local (preservando id real si Supabase lo devolvió)
+      const insertedId = Array.isArray(data) && data[0]?.id ? String(data[0].id) : undefined;
       onAddInvoice({
+        ...(insertedId ? { id: insertedId } : {}),
         number: newNumber.trim(),
         client: newClient.trim(),
         clientTaxId: newTaxId.trim(),
@@ -332,6 +339,48 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
       setPaymentInvoiceId('');
       setPaymentReference('');
     }, 2000);
+  };
+
+  const handleConfirmDeleteInvoice = async () => {
+    if (!invoiceToDelete || isDeletingInvoice) return;
+
+    setIsDeletingInvoice(true);
+    try {
+      const factura = invoiceToDelete;
+
+      if (isSupabaseConfigured()) {
+        const { error } = await supabase
+          .from('facturas')
+          .delete()
+          .eq('id', factura.id);
+
+        if (error) {
+          const isLocalTempId = String(factura.id).startsWith('inv-');
+          if (isLocalTempId && factura.number) {
+            const fallbackRes = await supabase
+              .from('facturas')
+              .delete()
+              .eq('numero_factura', factura.number);
+            if (fallbackRes.error) {
+              console.warn('Aviso al eliminar factura en Supabase:', fallbackRes.error.message);
+            }
+          } else {
+            console.error('Error al eliminar factura en Supabase:', error.message);
+            triggerToast(`Error al eliminar factura: ${error.message}`, 'warning');
+            return;
+          }
+        }
+      }
+
+      eliminarFactura(factura.id);
+      setInvoiceToDelete(null);
+      triggerToast('Factura eliminada correctamente', 'success');
+    } catch (err: any) {
+      console.error('Error inesperado al eliminar factura:', err);
+      triggerToast(`Error al eliminar factura: ${err?.message || 'Fallo de conexión'}`, 'warning');
+    } finally {
+      setIsDeletingInvoice(false);
+    }
   };
 
   return (
@@ -655,7 +704,7 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
                   </div>
 
                   {/* Botones de acción móvil interactivos */}
-                  <div className="pt-2 flex items-center justify-end gap-2 border-t border-slate-100">
+                  <div className="pt-2 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100">
                     <button
                       onClick={() => setSelectedInvoice(inv)}
                       className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors cursor-pointer"
@@ -691,6 +740,16 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
                         <span>Aviso</span>
                       </button>
                     )}
+
+                    <button
+                      type="button"
+                      onClick={() => setInvoiceToDelete(inv)}
+                      className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200/70 rounded-md transition-colors cursor-pointer"
+                      title="Eliminar factura"
+                      aria-label={`Eliminar factura ${inv.number}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
               );
@@ -840,6 +899,16 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
                               <span>Aviso</span>
                             </button>
                           )}
+
+                          <button
+                            type="button"
+                            onClick={() => setInvoiceToDelete(inv)}
+                            className="inline-flex items-center justify-center p-1.5 rounded-md text-rose-600 hover:text-rose-700 hover:bg-rose-50 transition-colors cursor-pointer"
+                            title="Eliminar factura"
+                            aria-label={`Eliminar factura ${inv.number}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1389,6 +1458,87 @@ export const BillingModule: React.FC<BillingModuleProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: Confirmar Eliminación de Factura */}
+      {invoiceToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-rose-50/70">
+              <div className="flex items-center gap-2.5 text-rose-700">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                </div>
+                <h3 className="text-sm sm:text-base font-bold text-slate-900">
+                  Eliminar Factura
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isDeletingInvoice && setInvoiceToDelete(null)}
+                disabled={isDeletingInvoice}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-rose-100/60 transition-colors cursor-pointer disabled:opacity-50"
+                aria-label="Cerrar confirmación"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-xs sm:text-sm text-slate-700 leading-relaxed">
+                ¿Estás seguro de que deseas eliminar esta factura? Esta acción no se puede deshacer.
+              </p>
+
+              <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs space-y-1">
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Documento:</span>
+                  <span className="font-mono font-bold text-slate-900">{invoiceToDelete.number}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Cliente:</span>
+                  <span className="font-medium text-slate-800 truncate max-w-[200px]">
+                    {invoiceToDelete.client}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Importe:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {formatUsd(invoiceToDelete.amount)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-1 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setInvoiceToDelete(null)}
+                  disabled={isDeletingInvoice}
+                  className="px-4 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteInvoice}
+                  disabled={isDeletingInvoice}
+                  className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 rounded-lg shadow-xs transition-colors cursor-pointer disabled:opacity-70"
+                >
+                  {isDeletingInvoice ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-white" />
+                      <span>Eliminando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Sí, eliminar</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

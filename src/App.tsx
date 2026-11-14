@@ -11,6 +11,8 @@ import { RegisterView } from './components/auth/RegisterView';
 import { CheckoutView } from './components/CheckoutView';
 import { HelpView } from './components/HelpView';
 import { SuperadminView } from './components/SuperadminView';
+import { TermsView } from './components/TermsView';
+import { PrivacyView } from './components/PrivacyView';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { ViewMode, AuthUser, CurrentUser } from './types';
 import { BcvProvider } from './context/BcvContext';
@@ -299,6 +301,20 @@ function AppContent() {
           onBackToApp={() => setCurrentView('dashboard')}
           onBackToLanding={() => setCurrentView('landing')}
           onShowToast={addGlobalToast}
+        />
+      )}
+
+      {currentView === 'terms' && (
+        <TermsView
+          onBackToLanding={() => setCurrentView('landing')}
+          onNavigateToPrivacy={() => setCurrentView('privacy')}
+        />
+      )}
+
+      {currentView === 'privacy' && (
+        <PrivacyView
+          onBackToLanding={() => setCurrentView('landing')}
+          onNavigateToTerms={() => setCurrentView('terms')}
         />
       )}
 
